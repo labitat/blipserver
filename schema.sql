@@ -1,0 +1,4 @@
+CREATE TABLE readings (
+	stamp BIGINT PRIMARY KEY,
+	ms INTEGER NOT NULL
+);
