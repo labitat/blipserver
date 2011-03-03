@@ -68,14 +68,14 @@ to log some blinks.
 
   Immediately returns the last point read.
 
-* __/last/<n>__
+* __/last/\<n\>__
 
   Returns a list points read during the last `<n>` milliseconds.
 
   If there are more than 2000 such points only the first 2000 will
   be returned.
 
-* __/since/<n>__
+* __/since/\<n\>__
 
   Returns a list of points since `<n>`, which must be a unix timestamp in
   milliseconds.
