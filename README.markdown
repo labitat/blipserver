@@ -52,7 +52,7 @@ The points can be fetched by doing HTTP requests to various URIs.
 So far [JSON][] is the only output format supported and points will be
 returned in a JSON array `[stamp, ms]`.
 
-Clients should not assume that `stamp1 + ms1 = stamp2` for every two
+Clients should not assume that `stamp1 + ms2 = stamp2` for every two
 consecutive points `(stamp1, ms1)` and `(stamp2, ms2)`. There may be time drifts,
 rounding errors or both. Also the blip server may have been down for some
 period of time due to maintanence or other hacking and thus not been able
