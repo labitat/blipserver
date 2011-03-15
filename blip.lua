@@ -89,6 +89,7 @@ GET('/favicon.ico',    sendfile('image/x-icon',                   'favicon.ico')
 
 GET('/blip', function(req, res)
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
 	local now, ms = get_blip()
 	res:add('[%s,%s]', now, ms)
@@ -116,6 +117,7 @@ assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LI
 
 GET('/last', function(req, res)
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
 	local point = assert(db:run('last'))[1]
 
@@ -128,6 +130,7 @@ MATCH('^/since/(%d+)$', function(req, res, since)
 	end
 
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 	add_json(res, assert(db:run('get', since)))
 end)
 
@@ -137,6 +140,7 @@ MATCH('^/last/(%d+)$', function(req, res, ms)
 	end
 
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
 	local since = format('%0.f',
 		gettimeofday() * 1000 - tonumber(ms))
