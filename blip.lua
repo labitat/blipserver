@@ -88,7 +88,7 @@ GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js')
 GET('/favicon.ico',    sendfile('image/x-icon',                   'favicon.ico'))
 
 GET('/blip', function(req, res)
-	res.headers['Content-Type'] = 'application/json; charset=UTF-8'
+	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 
 	local now, ms = get_blip()
 	res:add('[%s,%s]', now, ms)
@@ -115,8 +115,10 @@ assert(db:prepare('get',  'SELECT stamp, ms FROM readings WHERE stamp >= $1 ORDE
 assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
 
 GET('/last', function(req, res)
-	local point = assert(db:run('last'))
-	point = point[1]
+	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+
+	local point = assert(db:run('last'))[1]
+
 	res:add('[%s,%s]', point[1], point[2])
 end)
 
@@ -125,6 +127,7 @@ MATCH('^/since/(%d+)$', function(req, res, since)
 		return hathaway.method_not_allowed(req, res)
 	end
 
+	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 	add_json(res, assert(db:run('get', since)))
 end)
 
@@ -132,6 +135,8 @@ MATCH('^/last/(%d+)$', function(req, res, ms)
 	if req.method ~= 'HEAD' and req.method ~= 'GET' then
 		return hathaway.method_not_allowed(req, res)
 	end
+
+	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 
 	local since = format('%0.f',
 		gettimeofday() * 1000 - tonumber(ms))
