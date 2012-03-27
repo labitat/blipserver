@@ -30,21 +30,21 @@ local tonumber = tonumber
 
 local get_blip, put_blip
 do
+	local thisthread, suspend, resume
+		= utils.thisthread, utils.suspend, utils.resume
 	local queue, n = {}, 0
 
 	function get_blip()
-		local sleeper = utils.sleeper()
-
 		n = n + 1;
-		queue[n] = sleeper
+		queue[n] = thisthread()
 
-		return sleeper:sleep()
+		return suspend()
 	end
 
 	function put_blip(now, ms)
 		print(now, ms, n)
 		for i = 1, n do
-			queue[i]:wakeup(now, ms)
+			resume(queue[i], now, ms)
 			queue[i] = nil
 		end
 
