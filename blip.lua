@@ -64,7 +64,6 @@ utils.spawn(function()
 	while true do
 		local ms = assert(serial:read('*l'))
 		local now = format('%0.f', gettimeofday() * 1000)
-		ms = ms:sub(1, -2)
 
 		put_blip(now, ms)
 		assert(db:run('put', now, ms))
@@ -124,21 +123,13 @@ GET('/last', function(req, res)
 	res:add('[%s,%s]', point[1], point[2])
 end)
 
-MATCH('^/since/(%d+)$', function(req, res, since)
-	if req.method ~= 'HEAD' and req.method ~= 'GET' then
-		return hathaway.method_not_allowed(req, res)
-	end
-
+GETM('^/since/(%d+)$', function(req, res, since)
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 	add_json(res, assert(db:run('get', since)))
 end)
 
-MATCH('^/last/(%d+)$', function(req, res, ms)
-	if req.method ~= 'HEAD' and req.method ~= 'GET' then
-		return hathaway.method_not_allowed(req, res)
-	end
-
+GETM('^/last/(%d+)$', function(req, res, ms)
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
