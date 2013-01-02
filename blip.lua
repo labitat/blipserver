@@ -53,7 +53,7 @@ do
 end
 
 utils.spawn(function()
-	local serial = assert(streams.open('/dev/ttyUSB0', 'r'))
+	local serial = assert(streams.open('/dev/serial/blipduino', 'r'))
 	local db = assert(postgres.connect('user=powermeter dbname=powermeter'))
 	assert(db:prepare('put', 'INSERT INTO readings VALUES ($1, $2)'))
 
