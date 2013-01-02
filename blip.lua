@@ -18,11 +18,10 @@
 --
 
 local utils        = require 'lem.utils'
-local streams      = require 'lem.streams'
+local io           = require 'lem.io'
 local postgres     = require 'lem.postgres'
 local qpostgres    = require 'lem.postgres.queued'
 local hathaway     = require 'lem.hathaway'
-local gettimeofday = require 'gettimeofday'
 
 local assert = assert
 local format = string.format
@@ -41,10 +40,10 @@ do
 		return suspend()
 	end
 
-	function put_blip(now, ms)
-		print(now, ms, n)
+	function put_blip(stamp, ms)
+		print(stamp, ms, n)
 		for i = 1, n do
-			resume(queue[i], now, ms)
+			resume(queue[i], stamp, ms)
 			queue[i] = nil
 		end
 
@@ -53,8 +52,9 @@ do
 end
 
 utils.spawn(function()
-	local serial = assert(streams.open('/dev/serial/blipduino', 'r'))
+	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
 	local db = assert(postgres.connect('user=powermeter dbname=powermeter'))
+	local now = utils.now
 	assert(db:prepare('put', 'INSERT INTO readings VALUES ($1, $2)'))
 
 	-- discard first two readings
@@ -63,10 +63,10 @@ utils.spawn(function()
 
 	while true do
 		local ms = assert(serial:read('*l'))
-		local now = format('%0.f', gettimeofday() * 1000)
+		local stamp = format('%0.f', now() * 1000)
 
-		put_blip(now, ms)
-		assert(db:run('put', now, ms))
+		put_blip(stamp, ms)
+		assert(db:run('put', stamp, ms))
 	end
 end)
 
@@ -90,8 +90,8 @@ GET('/blip', function(req, res)
 	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
 	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
-	local now, ms = get_blip()
-	res:add('[%s,%s]', now, ms)
+	local stamp, ms = get_blip()
+	res:add('[%s,%s]', stamp, ms)
 end)
 
 local function add_json(res, values)
@@ -134,7 +134,7 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
 
 	local since = format('%0.f',
-		gettimeofday() * 1000 - tonumber(ms))
+		utils.now() * 1000 - tonumber(ms))
 
 	add_json(res, assert(db:run('get', since)))
 end)
