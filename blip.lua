@@ -86,9 +86,23 @@ GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.j
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
 GET('/favicon.ico',    sendfile('image/x-icon',                   'favicon.ico'))
 
+local function apiheaders(headers)
+	headers['Content-Type'] = 'text/javascript; charset=UTF-8'
+	headers['Cache-Control'] = 'max-age=0, must-revalidate'
+	headers['Access-Control-Allow-Origin'] = '*'
+	headers['Access-Control-Allow-Methods'] = 'GET'
+	headers['Access-Control-Allow-Headers'] = 'origin, x-requested-with, accept'
+	headers['Access-Control-Max-Age'] = '60'
+end
+
+local function apioptions(req, res)
+	apiheaders(res.headers)
+	res.status = 200
+end
+
+OPTIONS('/blip', apioptions)
 GET('/blip', function(req, res)
-	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
-	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
+	apiheaders(res.headers)
 
 	local stamp, ms = get_blip()
 	res:add('[%s,%s]', stamp, ms)
@@ -114,24 +128,24 @@ local db = assert(qpostgres.connect('user=powermeter dbname=powermeter'))
 assert(db:prepare('get',  'SELECT stamp, ms FROM readings WHERE stamp >= $1 ORDER BY stamp LIMIT 2000'))
 assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
 
+OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
-	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
-	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
+	apiheaders(res.headers)
 
 	local point = assert(db:run('last'))[1]
 
 	res:add('[%s,%s]', point[1], point[2])
 end)
 
+OPTIONSM('^/since/(%d+)$', apioptions)
 GETM('^/since/(%d+)$', function(req, res, since)
-	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
-	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
+	apiheaders(res.headers)
 	add_json(res, assert(db:run('get', since)))
 end)
 
+OPTIONSM('^/last/(%d+)$', apioptions)
 GETM('^/last/(%d+)$', function(req, res, ms)
-	res.headers['Content-Type'] = 'text/javascript; charset=UTF-8'
-	res.headers['Cache-Control'] = 'max-age=0, must-revalidate'
+	apiheaders(res.headers)
 
 	local since = format('%0.f',
 		utils.now() * 1000 - tonumber(ms))
