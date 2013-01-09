@@ -21,6 +21,7 @@ local utils        = require 'lem.utils'
 local io           = require 'lem.io'
 local postgres     = require 'lem.postgres'
 local qpostgres    = require 'lem.postgres.queued'
+local httpserv     = require 'lem.http.server'
 local hathaway     = require 'lem.hathaway'
 
 local assert = assert
@@ -139,12 +140,20 @@ end)
 
 OPTIONSM('^/since/(%d+)$', apioptions)
 GETM('^/since/(%d+)$', function(req, res, since)
+	if #since > 15 then
+		httpserv.bad_request(req, res)
+		return
+	end
 	apiheaders(res.headers)
 	add_json(res, assert(db:run('get', since)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)
 GETM('^/last/(%d+)$', function(req, res, ms)
+	if #ms > 15 then
+		httpserv.bad_request(req, res)
+		return
+	end
 	apiheaders(res.headers)
 
 	local since = format('%0.f',
