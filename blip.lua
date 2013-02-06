@@ -90,6 +90,7 @@ GET('/index.html',     index_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
+GET('/ribbon.png',     sendfile('image/png',                      'ribbon.png'))
 GET('/favicon.ico',    sendfile('image/x-icon',                   'favicon.ico'))
 
 local function apiheaders(headers)
