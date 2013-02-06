@@ -72,16 +72,21 @@ utils.spawn(function()
 end)
 
 local function sendfile(content, path)
+	local file = assert(io.open(path))
+	local size = assert(file:size())
 	return function(req, res)
 		res.headers['Content-Type'] = content
-		res.file = path
+		res.headers['Content-Length'] = size
+		res.file = file
 	end
 end
 
+local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
+
 hathaway.import()
 
-GET('/',               sendfile('text/html; charset=UTF-8',       'index.html'))
-GET('/index.html',     sendfile('text/html; charset=UTF-8',       'index.html'))
+GET('/',               index_html)
+GET('/index.html',     index_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
