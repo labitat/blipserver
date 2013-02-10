@@ -18,6 +18,7 @@
 --
 
 local utils        = require 'lem.utils'
+local queue        = require 'lem.queue'
 local io           = require 'lem.io'
 local postgres     = require 'lem.postgres'
 local qpostgres    = require 'lem.postgres.queued'
@@ -28,29 +29,7 @@ local assert = assert
 local format = string.format
 local tonumber = tonumber
 
-local get_blip, put_blip
-do
-	local thisthread, suspend, resume
-		= utils.thisthread, utils.suspend, utils.resume
-	local queue, n = {}, 0
-
-	function get_blip()
-		n = n + 1;
-		queue[n] = thisthread()
-
-		return suspend()
-	end
-
-	function put_blip(stamp, ms)
-		print(stamp, ms, n)
-		for i = 1, n do
-			resume(queue[i], stamp, ms)
-			queue[i] = nil
-		end
-
-		n = 0
-	end
-end
+local blip = queue.new()
 
 utils.spawn(function()
 	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
@@ -66,7 +45,8 @@ utils.spawn(function()
 		local ms = assert(serial:read('*l'))
 		local stamp = format('%0.f', now() * 1000)
 
-		put_blip(stamp, ms)
+		print(stamp, ms, blip.n)
+		blip:signal(stamp, ms)
 		assert(db:run('put', stamp, ms))
 	end
 end)
@@ -111,7 +91,7 @@ OPTIONS('/blip', apioptions)
 GET('/blip', function(req, res)
 	apiheaders(res.headers)
 
-	local stamp, ms = get_blip()
+	local stamp, ms = blip:get()
 	res:add('[%s,%s]', stamp, ms)
 end)
 
