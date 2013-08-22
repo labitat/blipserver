@@ -10,7 +10,7 @@
   <body>
     <div id="graph" style="width:800px;height:400px;"></div>
     <h3>Last update:</h3>
-    <p><pre id="text"></pre></p>
+    <p><pre id="text"><a href="http://browsehappy.com/">http://browsehappy.com/</a></pre></p>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
@@ -58,7 +58,7 @@
             data = values;
 
             $.plot(graph, [ data ], options);
-            setTimeout(callHome, 10);
+            callHome();
         };
 
         callHome = function () {
@@ -83,9 +83,9 @@
                 data.shift();
             }
 
-            text.innerHTML = time.toString() + ' - ' + ms + 'ms -> ' + point[1].toFixed(0) + 'W';
+            text.textContent = time.toString() + ' - ' + ms + 'ms -> ' + point[1].toFixed(0) + 'W';
             $.plot(graph, [ data ], options);
-            setTimeout(callHome, 10);
+            callHome();
         };
 
         $.ajax({
