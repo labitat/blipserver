@@ -45,9 +45,10 @@ utils.spawn(function()
 		local ms = assert(serial:read('*l'))
 		local stamp = format('%0.f', now() * 1000)
 
-		print(stamp, ms, blip.n)
+--		print(stamp, ms, blip.n)
 		blip:signal(stamp, ms)
 		assert(db:run('put', stamp, ms))
+--		print('waiting for next event')
 	end
 end)
 
@@ -63,6 +64,7 @@ end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
 
+--hathaway.debug = print
 hathaway.import()
 
 GET('/',               index_html)
@@ -148,7 +150,6 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	add_json(res, assert(db:run('get', since)))
 end)
 
-hathaway.debug = print
 assert(Hathaway('*', arg[1] or 8080))
 
 -- vim: syntax=lua ts=2 sw=2 noet:
