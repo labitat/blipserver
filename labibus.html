@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+    <title>Labibus</title>
+    <!--[if IE]><script type="text/javascript" src="excanvas.js"></script><![endif]-->
+  </head>
+  <body>
+    <h1>Labibus</h1>
+    <table border=1 id="devicelist">
+      <tr><th>id</th><th>active?</th><th>Description</th><th>&nbsp;</th></tr>
+    </table>
+    <h3 id="deviceheader">Device</h3>
+    <div id="graph" style="width:800px;height:400px;"></div>
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="jquery.flot.js"></script>
+    <script type="text/javascript">
+    /*global jQuery:false, $:false */
+    /*jslint whitespace:false, indent:4, onevar:false, browser:true */
+    var showDevice;
+    $(function () {
+        var options = {
+                lines: { show: true },
+                xaxis: { mode: 'time' },
+                yaxis: {
+                    tickFormatter: function (val, axis) {
+                        return val.toFixed(axis.tickDecimals);
+                    }
+                },
+                colors: [ 'red' ]
+            },
+            data,
+            graph = $('#graph'),
+            devicelist = document.getElementById('devicelist'),
+            deviceheader = document.getElementById('deviceheader'),
+            timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
+            preparePoint,
+            fillGraph,
+            fillDeviceList,
+            setDeviceHdr;
+
+        preparePoint = function (point) {
+            var stamp = point[0];
+
+            /* hack to show times in local time */
+            stamp -= timezoneOffset;
+
+            point[0] = stamp;
+        };
+
+        fillGraph = function (values) {
+            for (i in values) {
+                preparePoint(values[i]);
+            }
+
+            data = values;
+
+            $.plot(graph, [ data ], options);
+        };
+
+        setDeviceHdr = function (status) {
+            deviceheader.textContent = 'Device ' + status[0][0] + ': ' +
+                status[0][2] + ', in ' + status[0][3];
+            options.yaxis.tickFormatter = function (val, axis) {
+                return val.toFixed(axis.tickDecimals) + " " + status[0][3];
+            }
+
+            $.ajax({
+                url: '/labibus_data/' + status[0][0],
+                method: 'GET',
+                dataType: 'json',
+                success: fillGraph
+            });
+        }
+
+        showDevice = function (dev) {
+            $.ajax({
+                url: '/labibus_status/' + dev,
+                method: 'GET',
+                dataType: 'json',
+                success: setDeviceHdr
+            });
+        };
+
+        fillDeviceList = function (values) {
+            var row_idx = 1;
+            for (i in values) {
+                var row = devicelist.insertRow(row_idx);
+                ++row_idx;
+                row.insertCell(0).innerHTML = values[i][0];
+                if (values[i][1] == 1) {
+                    row.insertCell(1).innerHTML = '<b>yes</b>';
+                } else {
+                    row.insertCell(1).innerHTML = 'no';
+                }
+                row.insertCell(2).innerHTML = values[i][2];
+                if (values[i][1] == 1) {
+                    row.insertCell(3).innerHTML= '<input type="button" value = "Graph" onClick="Javacsript:showDevice(' + values[i][0] + ')">';
+                } else {
+                    row.insertCell(3).innerHTML= '&nbsp;';
+                }
+            }
+        };
+
+        $.ajax({
+            url: '/labibus_status',
+            method: 'GET',
+            dataType: 'json',
+            success: fillDeviceList
+        });
+    });
+    </script>
+  </body>
+</html>
