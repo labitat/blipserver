@@ -161,7 +161,7 @@ assert(db:prepare('get',  'SELECT stamp, ms FROM readings WHERE stamp >= $1 ORDE
 assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
 assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
-assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit 20000'))
+assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -217,7 +217,14 @@ OPTIONSM('^/labibus_data/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_data(res, assert(db:run('labibus_data', dev)))
+	add_data(res, assert(db:run('labibus_data', dev, 20000)))
+end)
+
+OPTIONSM('^/labibus_data/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
+  apiheaders(res.headers)
+
+  add_data(res, assert(db:run('labibus_data', dev, howmany)))
 end)
 
 assert(Hathaway('*', arg[1] or 8080))

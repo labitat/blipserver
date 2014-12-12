@@ -14,6 +14,8 @@
     </table>
     <h3 id="deviceheader">Device</h3>
     <div id="graph" style="width:800px;height:400px;"></div>
+    <p><pre id="text">Last data point: </pre></p>
+    <div id="graph_long" style="width:800px;height:400px;"></div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
@@ -32,12 +34,15 @@
                 colors: [ 'red' ]
             },
             data,
+            dataLong,
             graph = $('#graph'),
+            graphLong = $('#graph_long'),
             devicelist = document.getElementById('devicelist'),
             deviceheader = document.getElementById('deviceheader'),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
             preparePoint,
             fillGraph,
+            fillGraphLong,
             fillDeviceList,
             setDeviceHdr;
 
@@ -51,6 +56,9 @@
         };
 
         fillGraph = function (values) {
+            var time = new Date(values[0][0]);
+            text.textContent = "Last data point: " +
+                 time.toString() + ' - ' + values[0][1];
             for (i in values) {
                 preparePoint(values[i]);
             }
@@ -58,6 +66,16 @@
             data = values;
 
             $.plot(graph, [ data ], options);
+        };
+
+        fillGraphLong = function (values) {
+            for (i in values) {
+                preparePoint(values[i]);
+            }
+
+            dataLong = values;
+
+            $.plot(graphLong, [ dataLong ], options);
         };
 
         setDeviceHdr = function (status) {
@@ -68,10 +86,17 @@
             }
 
             $.ajax({
-                url: '/labibus_data/' + status[0][0],
+                url: 'https://power.labitat.dk/labibus_data/' + status[0][0] + '/1000',
                 method: 'GET',
                 dataType: 'json',
                 success: fillGraph
+            });
+
+            $.ajax({
+                url: 'https://power.labitat.dk/labibus_data/' + status[0][0] + '/20000',
+                method: 'GET',
+                dataType: 'json',
+                success: fillGraphLong
             });
         }
 
