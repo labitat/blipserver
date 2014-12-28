@@ -142,14 +142,14 @@ local function add_device_json(res, values)
 			if r[2] == "t" then
 				res:add('[%s,1,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 			else
-				res:add('[%s,0,"","",0],', r[1])
+				res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 			end
 		end
 		local r = values[n]
 		if r[2] == "t" then
 			res:add('[%s,1,%s,%s,%s]', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 		else
-			res:add('[%s,0,"","",0]', r[1])
+			res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 		end
 	end
 
