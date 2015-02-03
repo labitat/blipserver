@@ -63,12 +63,15 @@ local function sendfile(content, path)
 end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
+local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
 
 --hathaway.debug = print
 hathaway.import()
 
 GET('/',               index_html)
 GET('/index.html',     index_html)
+GET('/labibus',        labibus_html)
+GET('/labibus.html',   labibus_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
@@ -120,10 +123,10 @@ local function add_data(res, values)
 	if n > 0 then
 		for i = 1, n-1 do
 			local point = values[i]
-			res:add('["%s",%s],', point[1], point[2])
+			res:add('[%s,%s],', point[1], point[2])
 		end
 		local point = values[n]
-		res:add('["%s",%s]', point[1], point[2])
+		res:add('[%s,%s]', point[1], point[2])
 	end
 
 	res:add(']')
@@ -137,16 +140,16 @@ local function add_device_json(res, values)
 		for i = 1, n-1 do
 			local r = values[i]
 			if r[2] == "t" then
-				res:add('[%s,1,"%s","%s",%s]', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
+				res:add('[%s,1,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 			else
-				res:add('[%s,0,"","",0]', r[1])
+				res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 			end
 		end
 		local r = values[n]
 		if r[2] == "t" then
-			res:add('[%s,1,"%s","%s",%s]', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
+			res:add('[%s,1,%s,%s,%s]', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 		else
-			res:add('[%s,0,"","",0]', r[1])
+			res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
 		end
 	end
 
@@ -158,7 +161,7 @@ assert(db:prepare('get',  'SELECT stamp, ms FROM readings WHERE stamp >= $1 ORDE
 assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
 assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
-assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit 1000'))
+assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -214,7 +217,14 @@ OPTIONSM('^/labibus_data/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_data(res, assert(db:run('labibus_data', dev)))
+	add_data(res, assert(db:run('labibus_data', dev, 20000)))
+end)
+
+OPTIONSM('^/labibus_data/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
+  apiheaders(res.headers)
+
+  add_data(res, assert(db:run('labibus_data', dev, howmany)))
 end)
 
 assert(Hathaway('*', arg[1] or 8080))
