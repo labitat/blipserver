@@ -162,6 +162,7 @@ assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LI
 assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
 assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
+assert(db:prepare('aggregate', 'SELECT $2*DIV(stamp - $1, $2) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=$1 AND stamp < $1+$2*$3 GROUP BY hour_stamp ORDER BY hour_stamp'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -180,6 +181,16 @@ GETM('^/since/(%d+)$', function(req, res, since)
 	end
 	apiheaders(res.headers)
 	add_json(res, assert(db:run('get', since)))
+end)
+
+OPTIONSM('^/aggregate/(%d+)/(%d+)/(%d+)$', apioptions)
+GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count)
+	if #since > 15 or #interval > 15 or #count > 15 or tonumber(count) > 1000 then
+		httpserv.bad_request(req, res)
+		return
+	end
+	apiheaders(res.headers)
+	add_json(res, assert(db:run('aggregate', since, interval, count)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)
