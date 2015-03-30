@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+    <title>Powergraph last week</title>
+    <!--[if IE]><script type="text/javascript" src="excanvas.js"></script><![endif]-->
+  </head>
+  <body>
+    <h1>Powergraph last week</h1>
+    <div id="graph" style="width:800px;height:400px;"></div>
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="jquery.flot.js"></script>
+    <script type="text/javascript">
+    /*global jQuery:false, $:false */
+    /*jslint whitespace:false, indent:4, onevar:false, browser:true */
+    var showDevice;
+    $(function () {
+        var options = {
+                lines: { show: true },
+                xaxis: { mode: 'time' },
+                yaxis: {
+                    tickFormatter: function (val, axis) {
+                        return val.toFixed(axis.tickDecimals);
+                    }
+                },
+                colors: [ 'red' ]
+            },
+            data,
+            graph = $('#graph'),
+            timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
+            preparePoint,
+            fillGraph,
+            startTime = (new Date()).getTime() - 86400*1000*7,
+            startTimeRemote = startTime + timezoneOffset;
+
+        preparePoint = function (point) {
+            var stamp = point[0];
+
+            stamp += startTime;
+
+            point[0] = stamp;
+        };
+
+        fillGraph = function (values) {
+            for (i in values) {
+                preparePoint(values[i]);
+            }
+            data = values;
+
+            $.plot(graph, [ data ], options);
+        };
+
+        $.ajax({
+            url: '/aggregate/' + startTimeRemote + '/3600000/168',
+            method: 'GET',
+            dataType: 'json',
+            success: fillGraph
+        });
+    });
+    </script>
+  </body>
+</html>

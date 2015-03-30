@@ -64,6 +64,7 @@ end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
 local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
+local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
 
 --hathaway.debug = print
 hathaway.import()
@@ -72,6 +73,7 @@ GET('/',               index_html)
 GET('/index.html',     index_html)
 GET('/labibus',        labibus_html)
 GET('/labibus.html',   labibus_html)
+GET('/lastweek.html',  lastweek_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
