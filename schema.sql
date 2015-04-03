@@ -5,7 +5,10 @@ CREATE TABLE readings (
 
 CREATE TABLE readings_hourly (
        stamp BIGINT PRIMARY KEY,
-       events INTEGER NOT NULL
+       events INTEGER NOT NULL,
+       sum_ms INTEGER NOT NULL,
+       min_ms INTEGER NOT NULL,
+       max_ms INTEGER NOT NULL
 );
 
 CREATE OR REPLACE FUNCTION do_monthly_aggregate() RETURNS trigger AS
@@ -16,11 +19,14 @@ DECLARE
 BEGIN
   as_date := TIMESTAMP WITH TIME ZONE 'epoch' + trunc(NEW.stamp/1000) * INTERVAL '1 second';
   hour := 1000::BIGINT * extract(epoch from date_trunc('hour', as_date));
-  INSERT INTO readings_hourly (stamp, events)
-  SELECT hour, 0
+  INSERT INTO readings_hourly (stamp, events, sum_ms, min_ms, max_ms)
+  SELECT hour, 0, 0, NEW.ms, NEW.ms
    WHERE NOT EXISTS (SELECT 1 FROM readings_hourly R WHERE R.stamp=hour);
   UPDATE readings_hourly
-     SET events = events + 1
+     SET events = events + 1,
+         sum_ms = sum_ms + NEW.ms,
+         min_ms = LEAST(min_ms, NEW.ms),
+         max_ms = GREATEST(max_ms, NEW.ms)
    WHERE stamp = hour;
   RETURN NEW;
 END;
@@ -32,6 +38,10 @@ CREATE TRIGGER monthly_aggregate AFTER INSERT
     ON readings
    FOR EACH ROW
 EXECUTE PROCEDURE do_monthly_aggregate();
+
+CREATE OR REPLACE VIEW usage_hourly AS
+SELECT stamp, 3600000.0::DOUBLE PRECISION * events / sum_ms AS wh, min_ms, max_ms, events
+  FROM readings_hourly;
 
 
 CREATE TABLE device_history (

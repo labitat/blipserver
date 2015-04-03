@@ -118,6 +118,22 @@ local function add_json(res, values)
 	res:add(']')
 end
 
+local function add_json5(res, values)
+  res:add('[')
+
+  local n = #values
+  if n > 0 then
+    for i = 1, n-1 do
+      local point = values[i]
+      res:add('[%s,%s,%s,%s,%s],', point[1], point[2], point[3], point[4], point[5])
+    end
+    local point = values[n]
+    res:add('[%s,%s,%s,%s,%s]', point[1], point[2], point[3], point[4], point[5])
+  end
+
+  res:add(']')
+end
+
 local function add_data(res, values)
 	res:add('[')
 
@@ -165,7 +181,7 @@ assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
 assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
 assert(db:prepare('aggregate', 'SELECT $2*DIV(stamp - $1, $2) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=$1 AND stamp < $1+$2*$3 GROUP BY hour_stamp ORDER BY hour_stamp'))
-assert(db:prepare('hourly', 'SELECT stamp, events FROM readings_hourly WHERE stamp >= $1 AND stamp <= $2 ORDER BY STAMP'))
+assert(db:prepare('hourly', 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= $1 AND stamp <= $2 ORDER BY stamp'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -203,7 +219,7 @@ GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
     return
   end
   apiheaders(res.headers)
-  add_json(res, assert(db:run('hourly', since, last)))
+  add_json5(res, assert(db:run('hourly', since, last)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)

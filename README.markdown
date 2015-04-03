@@ -94,9 +94,15 @@ to log some blinks.
 
 * __/hourly/\<m\>/\<n\>__
 
-  Returns usage per hour (in blips, which is the same as watt-hours per
-  hour). The usage is returned in the interval `<m>` to `<n>`, in
+  Returns usage per hour.
+  The usage is returned in the interval `<m>` to `<n>`, in
   unix millisecond timestamps.
+  5 values are returned for each hour-interval:
+** The unix millisecond timestamp of the start of the hour-interval
+** The number of blips received during that hour-interval
+** The average usage during that hour, in watts.
+** The minimum blip length in that interval, in milliseconds.
+** The maximum blip length in that interval, in milliseconds.
 
 [JSON]: http://json.org
 
