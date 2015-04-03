@@ -92,6 +92,12 @@ to log some blinks.
   The aggregation interval is `<m>`, in milliseconds. Eg. 3600000 to get usage
   per hour. The number of points returned is `<c>`.
 
+* __/hourly/\<m\>/\<n\>__
+
+  Returns usage per hour (in blips, which is the same as watt-hours per
+  hour). The usage is returned in the interval `<m>` to `<n>`, in
+  unix millisecond timestamps.
+
 [JSON]: http://json.org
 
 License

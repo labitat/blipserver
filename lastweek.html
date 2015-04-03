@@ -30,30 +30,27 @@
             data,
             graph = $('#graph'),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
-            preparePoint,
             fillGraph,
-            startTime = (new Date()).getTime() - 86400*1000*7,
-            startTimeRemote = startTime + timezoneOffset;
-
-        preparePoint = function (point) {
-            var stamp = point[0];
-
-            stamp += startTime;
-
-            point[0] = stamp;
-        };
+            endTime = (new Date()).getTime();
+            startTime = endTime - 86400*7*1000;
+            startTimeMonth = endTime - 86400*30*1000;
+            startTimeYear = endTime - 86400*365*1000;
 
         fillGraph = function (values) {
-            for (i in values) {
-                preparePoint(values[i]);
+            newValues = [ ];
+            for (i = 0; i < values.length - 1; i++) {
+                newValues.push([values[i][0] - timezoneOffset,
+                                values[i][1]]);
+                newValues.push([values[i+1][0] - timezoneOffset,
+                                values[i][1]]);
             }
-            data = values;
+            data = newValues;
 
             $.plot(graph, [ data ], options);
         };
 
         $.ajax({
-            url: '/aggregate/' + startTimeRemote + '/3600000/168',
+            url: '/hourly/' + startTime + '/' + endTime,
             method: 'GET',
             dataType: 'json',
             success: fillGraph
