@@ -64,6 +64,7 @@ end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
 local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
+local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
 
 --hathaway.debug = print
 hathaway.import()
@@ -72,6 +73,7 @@ GET('/',               index_html)
 GET('/index.html',     index_html)
 GET('/labibus',        labibus_html)
 GET('/labibus.html',   labibus_html)
+GET('/lastweek.html',  lastweek_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
@@ -163,6 +165,7 @@ assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
 assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
 assert(db:prepare('aggregate', 'SELECT $2*DIV(stamp - $1, $2) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=$1 AND stamp < $1+$2*$3 GROUP BY hour_stamp ORDER BY hour_stamp'))
+assert(db:prepare('hourly', 'SELECT stamp, events FROM readings_hourly WHERE stamp >= $1 AND stamp <= $2 ORDER BY STAMP'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -191,6 +194,16 @@ GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count
 	end
 	apiheaders(res.headers)
 	add_json(res, assert(db:run('aggregate', since, interval, count)))
+end)
+
+OPTIONSM('^/hourly/(%d+)/(%d+)$', apioptions)
+GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
+  if #since > 15 or #last > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json(res, assert(db:run('hourly', since, last)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)

@@ -84,6 +84,20 @@ to log some blinks.
   returned, so use 1 plus the timestamp of the last point in the list to request
   the next 2000 points (again using this URI).
 
+* __/aggregate/\<n\>/\<m\>/\<c\>__
+
+  Returns aggreated usage over a time period. The period starts at `<n>`, which
+  must be a unix timestamp in milliseconds.
+
+  The aggregation interval is `<m>`, in milliseconds. Eg. 3600000 to get usage
+  per hour. The number of points returned is `<c>`.
+
+* __/hourly/\<m\>/\<n\>__
+
+  Returns usage per hour (in blips, which is the same as watt-hours per
+  hour). The usage is returned in the interval `<m>` to `<n>`, in
+  unix millisecond timestamps.
+
 [JSON]: http://json.org
 
 License
