@@ -104,6 +104,21 @@ to log some blinks.
 ** The minimum blip length in that interval, in milliseconds.
 ** The maximum blip length in that interval, in milliseconds.
 
+* __/labibus_blip/\<dev\>__
+
+  Long-polling of Labibus. The server waits for the next data point on Labibus
+  device \<dev\> to be received, then returns it as the pair [stamp,value].
+
+* __/labibus_last/\<dev\>/\<n\>__
+
+  Returns the Labibus data for device \<dev\> within the last \<n\>
+  milliseconds (At most 20000 points will be returned though).
+
+* __/labibus_since/\<dev\>/\<stamp\>__
+
+  Returns the Labibus data for the device \<dev\> since the given unix
+  millisecond time stamp. At most 20000 points will be returned.
+
 [JSON]: http://json.org
 
 License

@@ -52,6 +52,72 @@ utils.spawn(function()
 	end
 end)
 
+
+-- Labibus.
+
+local labibus = { }
+
+local function unquote(s)
+	local repl = function(m) return string.char(tonumber(m, 16)) end
+	local u = s:gsub('\\([0-9a-fA-F][0-9a-fA-F])', repl)
+	return u
+end
+
+utils.spawn(function()
+	local serial = assert(io.open('/dev/serial/labibus', 'r+'))
+	local db = assert(postgres.connect('user=powermeter dbname=powermeter'))
+	local now = utils.now
+	assert(db:prepare('labibus_put', 'INSERT INTO device_log VALUES ($1, $2, $3)'))
+	-- Placeholders: device, stamp, descr, unit, poll_interval, descr, unit
+	assert(db:prepare('dev_active',
+		'INSERT INTO device_history SELECT $1, $2, TRUE, $3, $4, $5' ..
+		' WHERE NOT EXISTS (SELECT 1 FROM device_status ' ..
+		'   WHERE id = $1 AND active AND description = $6' ..
+		'     AND unit = $7 AND poll_interval = $5)'))
+	-- Placeholders: device, stamp
+	assert(db:prepare('dev_inactive',
+		'INSERT INTO device_history SELECT $1, $2, FALSE, NULL, NULL, NULL' ..
+		' WHERE EXISTS (SELECT 1 FROM device_status' ..
+		'   WHERE id = $1 AND active)'))
+
+	-- Sending stuff to the master forces a full status report.
+	assert(serial:write('hitme!\n'))
+
+	while true do
+		local line = assert(serial:read('*l'))
+		local stamp = format('%0.f', now() * 1000)
+
+		local dev = line:match('^INACTIVE ([0-9]+)$')
+		if dev then
+			local q = labibus[dev]
+			if q then
+				labibus[dev] = nil
+				q:signal(nil, nil)
+				q:reset()
+			end
+			assert(db:run('dev_inactive', dev, stamp))
+		else
+		local dev, interval, desc_q, unit_q = line:match('^ACTIVE ([0-9]+)|([0-9]+)|([^|]*)|([^|]*)$')
+		if dev then
+			local desc = unquote(desc_q)
+			local unit = unquote(unit_q)
+			if not labibus[dev] then
+				labibus[dev] = queue.new()
+			end
+			assert(db:run('dev_active', dev, stamp, desc, unit, interval, desc, unit))
+		else
+		local dev, val = line:match('^POLL ([0-9]+) (.*)$')
+		if dev then
+			local q = labibus[dev]
+			if q then
+				q:signal(stamp, val)
+			end
+			assert(db:run('labibus_put', dev, stamp, val))
+		end end end
+	end
+end)
+
+
 local function sendfile(content, path)
 	local file = assert(io.open(path))
 	local size = assert(file:size())
@@ -180,6 +246,7 @@ assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LI
 assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
 assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
 assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
+assert(db:prepare('labibus_last', 'SELECT stamp, value FROM device_log WHERE id = $1 AND stamp >= $2 ORDER BY stamp LIMIT 20000'))
 assert(db:prepare('aggregate', 'SELECT $2*DIV(stamp - $1, $2) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=$1 AND stamp < $1+$2*$3 GROUP BY hour_stamp ORDER BY hour_stamp'))
 assert(db:prepare('hourly', 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= $1 AND stamp <= $2 ORDER BY stamp'))
 
@@ -265,6 +332,42 @@ GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
   apiheaders(res.headers)
 
   add_data(res, assert(db:run('labibus_data', dev, howmany)))
+end)
+
+OPTIONSM('^/labibus_blip/(%d+)$', apioptions)
+GETM('^/labibus_blip/(%d+)$', function(req, res, dev)
+	apiheaders(res.headers)
+	local q = labibus[dev]
+	if q then
+		local stamp, val = q:get()
+		if stamp then
+			res:add('[%s,%s]', stamp, val)
+		end
+	end
+end)
+
+OPTIONSM('^/labibus_last/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_last/(%d+)/(%d+)$', function(req, res, dev, ms)
+  if #ms > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+
+  local since = format('%0.f',
+    utils.now() * 1000 - tonumber(ms))
+
+  add_json(res, assert(db:run('labibus_last', dev, since)))
+end)
+
+OPTIONSM('^/labibus_since/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
+  if #since > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json(res, assert(db:run('labibus_last', dev, since)))
 end)
 
 assert(Hathaway('*', arg[1] or 8080))
