@@ -40,10 +40,15 @@
             devicelist = document.getElementById('devicelist'),
             deviceheader = document.getElementById('deviceheader'),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
+            currentDevice, currentDescription, currentUnit,
+            runNumber = 0,
             preparePoint,
+            updateText,
             fillGraph,
             fillGraphLong,
             fillDeviceList,
+            callHome,
+            onDataReceived,
             setDeviceHdr;
 
         preparePoint = function (point) {
@@ -55,10 +60,13 @@
             point[0] = stamp;
         };
 
+        updateText = function (stamp, val) {
+            text.textContent = (new Date(stamp)).toString() + ': ' +
+                val + ' ' + currentUnit;
+        }
+
         fillGraph = function (values) {
-            var time = new Date(values[0][0]);
-            text.textContent = "Last data point: " +
-                 time.toString() + ' - ' + values[0][1];
+            updateText(values[0][0], values[0][1]);
             for (i in values) {
                 preparePoint(values[i]);
             }
@@ -66,6 +74,7 @@
             data = values;
 
             $.plot(graph, [ data ], options);
+            callHome();
         };
 
         fillGraphLong = function (values) {
@@ -78,22 +87,53 @@
             $.plot(graphLong, [ dataLong ], options);
         };
 
+        callHome = function() {
+            var cb = onDataReceived(runNumber);
+            $.ajax({
+                url: '/labibus_blip/' + currentDevice,
+                method: 'GET',
+                dataType: 'json',
+                success: cb
+            });
+        };
+
+        onDataReceived = function(num) { return function (point) {
+            if (num != runNumber) { return null; }
+
+            var stamp = point[0], val = point[1];
+            updateText(stamp, val);
+
+            preparePoint(point);
+            data.push(point);
+
+            stamp = point[0] - 3600000; /* one hour */
+            while (data[0][0] < stamp) {
+               data.shift();
+            }
+
+            $.plot(graph, [ data ], options);
+            callHome();
+        } }
+
         setDeviceHdr = function (status) {
-            deviceheader.textContent = 'Device ' + status[0][0] + ': ' +
-                status[0][2] + ', in ' + status[0][3];
+            currentDevice = status[0][0];
+            currentDescription = status[0][2];
+            currentUnit = status[0][3];
+            deviceheader.textContent = 'Device ' + currentDevice + ': ' +
+                currentDescription + ', in ' + currentUnit;
             options.yaxis.tickFormatter = function (val, axis) {
-                return val.toFixed(axis.tickDecimals) + " " + status[0][3];
+                return val.toFixed(axis.tickDecimals) + " " + currentUnit;
             }
 
             $.ajax({
-                url: 'https://power.labitat.dk/labibus_data/' + status[0][0] + '/1000',
+                url: 'https://power.labitat.dk/labibus_last/' + currentDevice + '/3600000',
                 method: 'GET',
                 dataType: 'json',
                 success: fillGraph
             });
 
             $.ajax({
-                url: 'https://power.labitat.dk/labibus_data/' + status[0][0] + '/20000',
+                url: 'https://power.labitat.dk/labibus_last/' + currentDevice + '/86400000',
                 method: 'GET',
                 dataType: 'json',
                 success: fillGraphLong
@@ -101,6 +141,7 @@
         }
 
         showDevice = function (dev) {
+            runNumber++;
             $.ajax({
                 url: '/labibus_status/' + dev,
                 method: 'GET',
