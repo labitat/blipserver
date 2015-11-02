@@ -35,6 +35,9 @@
             preparePoint,
             fillGraph,
             callHome,
+            initReq,
+            pollError,
+            initError,
             onDataReceived;
 
         preparePoint = function (point) {
@@ -66,8 +69,27 @@
                 url: '/blip',
                 method: 'GET',
                 dataType: 'json',
-                success: onDataReceived
+                success: onDataReceived,
+                error: pollError
             });
+        };
+
+        pollError = function() {
+            setTimeout(callHome, 20000);
+        };
+
+        initReq = function() {
+            $.ajax({
+                url: '/last/1200000', /* last 20min */
+                method: 'GET',
+                dataType: 'json',
+                success: fillGraph,
+                error: initError
+            });
+        };
+
+        initError = function() {
+            setTimeout(initReq, 20000);
         };
 
         onDataReceived = function (point) {
@@ -88,12 +110,7 @@
             callHome();
         };
 
-        $.ajax({
-            url: '/last/1200000', /* last 20min */
-            method: 'GET',
-            dataType: 'json',
-            success: fillGraph
-        });
+        initReq();
     });
     </script>
     <a href="https://github.com/labitat/blipserver"><img style="position: absolute; top: 0; right: 0; border: 0;" src="ribbon.png" alt="Fork me on GitHub"></a>
