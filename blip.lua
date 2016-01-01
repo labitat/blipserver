@@ -117,7 +117,6 @@ utils.spawn(function()
 	end
 end)
 
-
 local function sendfile(content, path)
 	local file = assert(io.open(path))
 	local size = assert(file:size())
@@ -131,6 +130,8 @@ end
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
 local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
 local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
+local lastmonth_html = sendfile('text/html; charset=UTF-8', 'lastmonth.html')
+local lastyear_html = sendfile('text/html; charset=UTF-8', 'lastyear.html')
 
 --hathaway.debug = print
 hathaway.import()
@@ -140,6 +141,8 @@ GET('/index.html',     index_html)
 GET('/labibus',        labibus_html)
 GET('/labibus.html',   labibus_html)
 GET('/lastweek.html',  lastweek_html)
+GET('/lastmonth.html', lastmonth_html)
+GET('/lastyear.html',  lastyear_html)
 GET('/jquery.js',      sendfile('text/javascript; charset=UTF-8', 'jquery.js'))
 GET('/jquery.flot.js', sendfile('text/javascript; charset=UTF-8', 'jquery.flot.js'))
 GET('/excanvas.js',    sendfile('text/javascript; charset=UTF-8', 'excanvas.js'))
