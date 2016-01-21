@@ -1,0 +1,21 @@
+CREATE OR REPLACE VIEW usage_hourly AS
+SELECT stamp, 3600000.0 * events / sum_ms AS wh, min_ms, max_ms, events
+  FROM readings_hourly;
+
+delimiter ||
+CREATE TRIGGER monthly_aggregate AFTER INSERT
+    ON readings
+   FOR EACH ROW
+BEGIN
+DECLARE
+  rounded_hour BIGINT;
+  SET rounded_hour = 3600000 * (NEW.stamp DIV 3600000);
+  INSERT INTO readings_hourly (stamp, events, sum_ms, min_ms, max_ms)
+  VALUES (rounded_hour, 1, NEW.ms, NEW.ms, NEW.ms)
+      ON DUPLICATE KEY
+  UPDATE events = events + 1,
+         sum_ms = sum_ms + NEW.ms,
+	 min_ms = LEAST(min_ms, NEW.ms),
+	 max_ms = GREATEST(max_ms, NEW.ms);
+END||
+delimiter ;

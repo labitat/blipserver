@@ -1,7 +1,8 @@
 #!/usr/bin/env lem
 --
 -- This file is part of blipserver.
--- Copyright 2011 Emil Renner Berthing
+-- Copyright 2011,2016 Emil Renner Berthing
+-- Copyright 2016 Kristian Nielsen <knielsen@knielsen-hq.org>
 --
 -- blipserver is free software: you can redistribute it and/or
 -- modify it under the terms of the GNU General Public License as
@@ -20,8 +21,8 @@
 local utils        = require 'lem.utils'
 local queue        = require 'lem.queue'
 local io           = require 'lem.io'
-local postgres     = require 'lem.postgres'
-local qpostgres    = require 'lem.postgres.queued'
+local mariadb     = require 'lem.mariadb'
+local qmariadb    = require 'lem.mariadb.queued'
 local httpserv     = require 'lem.http.server'
 local hathaway     = require 'lem.hathaway'
 
@@ -29,13 +30,16 @@ local assert = assert
 local format = string.format
 local tonumber = tonumber
 
+local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
+
 local blip = queue.new()
 
 utils.spawn(function()
-	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
-	local db = assert(postgres.connect('user=powermeter dbname=powermeter'))
+--	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
+	local serial = assert(io.open('/dev/ttyACM1', 'r'))
+	local db = assert(mariadb.connect(dbauth))
 	local now = utils.now
-	assert(db:prepare('put', 'INSERT INTO readings VALUES ($1, $2)'))
+	local q_put = assert(db:prepare('INSERT INTO readings VALUES (?, ?)'))
 
 	-- discard first two readings
 	assert(serial:read('*l'))
@@ -47,7 +51,7 @@ utils.spawn(function()
 
 --		print(stamp, ms, blip.n)
 		blip:signal(stamp, ms)
-		assert(db:run('put', stamp, ms))
+		assert(q_put:run(stamp, ms))
 --		print('waiting for next event')
 	end
 end)
@@ -63,22 +67,23 @@ local function unquote(s)
 	return u
 end
 
+if false then
 utils.spawn(function()
 	local serial = assert(io.open('/dev/serial/labibus', 'r+'))
-	local db = assert(postgres.connect('user=powermeter dbname=powermeter'))
+	local db = assert(mariadb.connect(dbauth))
 	local now = utils.now
-	assert(db:prepare('labibus_put', 'INSERT INTO device_log VALUES ($1, $2, $3)'))
-	-- Placeholders: device, stamp, descr, unit, poll_interval, descr, unit
-	assert(db:prepare('dev_active',
-		'INSERT INTO device_history SELECT $1, $2, TRUE, $3, $4, $5' ..
+	local q_labibus_put = assert(db:prepare('INSERT INTO device_log VALUES (?, ?, ?)'))
+	-- Placeholders: device,stamp,descr,unit,poll_interval,device,descr,unit,poll_interval
+	local q_dev_active = assert(db:prepare(
+		'INSERT INTO device_history SELECT ?, ?, TRUE, ?, ?, ?' ..
 		' WHERE NOT EXISTS (SELECT 1 FROM device_status ' ..
-		'   WHERE id = $1 AND active AND description = $6' ..
-		'     AND unit = $7 AND poll_interval = $5)'))
+		'   WHERE id = ? AND active AND description = ?' ..
+		'     AND unit = ? AND poll_interval = ?)'))
 	-- Placeholders: device, stamp
-	assert(db:prepare('dev_inactive',
-		'INSERT INTO device_history SELECT $1, $2, FALSE, NULL, NULL, NULL' ..
+	local q_dev_inactive = assert(db:prepare(
+		'INSERT INTO device_history SELECT ?, ?, FALSE, NULL, NULL, NULL' ..
 		' WHERE EXISTS (SELECT 1 FROM device_status' ..
-		'   WHERE id = $1 AND active)'))
+		'   WHERE id = ? AND active)'))
 
 	-- Sending stuff to the master forces a full status report.
 	assert(serial:write('hitme!\n'))
@@ -95,7 +100,7 @@ utils.spawn(function()
 				q:signal(nil, nil)
 				q:reset()
 			end
-			assert(db:run('dev_inactive', dev, stamp))
+			assert(q_dev_inactive:run(dev, stamp, dev))
 		else
 		local dev, interval, desc_q, unit_q = line:match('^ACTIVE ([0-9]+)|([0-9]+)|([^|]*)|([^|]*)$')
 		if dev then
@@ -104,7 +109,8 @@ utils.spawn(function()
 			if not labibus[dev] then
 				labibus[dev] = queue.new()
 			end
-			assert(db:run('dev_active', dev, stamp, desc, unit, interval, desc, unit))
+			assert(q_dev_active:run(dev, stamp, desc, unit, interval,
+						dev, desc, unit, interval))
 		else
 		local dev, val = line:match('^POLL ([0-9]+) (.*)$')
 		if dev then
@@ -112,10 +118,11 @@ utils.spawn(function()
 			if q then
 				q:signal(stamp, val)
 			end
-			assert(db:run('labibus_put', dev, stamp, val))
+			assert(q_labibus_put:run(dev, stamp, val))
 		end end end
 	end
 end)
+end
 
 local function sendfile(content, path)
 	local file = assert(io.open(path))
@@ -243,21 +250,21 @@ local function add_device_json(res, values)
 	res:add(']')
 end
 
-local db = assert(qpostgres.connect('user=powermeter dbname=powermeter'))
-assert(db:prepare('get',  'SELECT stamp, ms FROM readings WHERE stamp >= $1 ORDER BY stamp LIMIT 2000'))
-assert(db:prepare('last', 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
-assert(db:prepare('labibus_status',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
-assert(db:prepare('labibus_datahdr',  'SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = $1'))
-assert(db:prepare('labibus_data',  'select stamp, value from device_log where id = $1 order by stamp desc limit $2'))
-assert(db:prepare('labibus_last', 'SELECT stamp, value FROM device_log WHERE id = $1 AND stamp >= $2 ORDER BY stamp LIMIT 20000'))
-assert(db:prepare('aggregate', 'SELECT $2*DIV(stamp - $1, $2) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=$1 AND stamp < $1+$2*$3 GROUP BY hour_stamp ORDER BY hour_stamp'))
-assert(db:prepare('hourly', 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= $1 AND stamp <= $2 ORDER BY stamp'))
+local db = assert(qmariadb.connect(dbauth))
+local q_get = assert(db:prepare('SELECT stamp, ms FROM readings WHERE stamp >= ? ORDER BY stamp LIMIT 2000'))
+local q_last = assert(db:prepare('SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
+local q_labibus_status = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
+local q_labibus_datahdr = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = ?'))
+local q_labibus_data = assert(db:prepare('select stamp, value from device_log where id = ? order by stamp desc limit ?'))
+local q_labibus_last = assert(db:prepare('SELECT stamp, value FROM device_log WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000'))
+local q_aggregate = assert(db:prepare('SELECT ?*((stamp - ?) DIV ?) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=? AND stamp < ?+?*? GROUP BY hour_stamp ORDER BY hour_stamp'))
+local q_hourly = assert(db:prepare('SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= ? AND stamp <= ? ORDER BY stamp'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
 	apiheaders(res.headers)
 
-	local point = assert(db:run('last'))[1]
+	local point = assert(q_last:run())[1]
 
 	res:add('[%s,%s]', point[1], point[2])
 end)
@@ -269,7 +276,7 @@ GETM('^/since/(%d+)$', function(req, res, since)
 		return
 	end
 	apiheaders(res.headers)
-	add_json(res, assert(db:run('get', since)))
+	add_json(res, assert(q_get:run(since)))
 end)
 
 OPTIONSM('^/aggregate/(%d+)/(%d+)/(%d+)$', apioptions)
@@ -279,7 +286,7 @@ GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count
 		return
 	end
 	apiheaders(res.headers)
-	add_json(res, assert(db:run('aggregate', since, interval, count)))
+	add_json(res, assert(q_aggregate:run(interval, since, interval, since, since, interval, count)))
 end)
 
 OPTIONSM('^/hourly/(%d+)/(%d+)$', apioptions)
@@ -289,7 +296,7 @@ GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
     return
   end
   apiheaders(res.headers)
-  add_json5(res, assert(db:run('hourly', since, last)))
+  add_json5(res, assert(q_hourly:run(since, last)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)
@@ -303,7 +310,7 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	local since = format('%0.f',
 		utils.now() * 1000 - tonumber(ms))
 
-	add_json(res, assert(db:run('get', since)))
+	add_json(res, assert(q_get:run(since)))
 end)
 
 
@@ -313,28 +320,28 @@ OPTIONS('/labibus_status', apioptions)
 GET('/labibus_status', function(req, res)
 	apiheaders(res.headers)
 
-	add_device_json(res, assert(db:run('labibus_status')))
+	add_device_json(res, assert(q_labibus_status:run()))
 end)
 
 OPTIONSM('^/labibus_status/(%d+)$', apioptions)
 GETM('^/labibus_status/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_device_json(res, assert(db:run('labibus_datahdr', dev)))
+	add_device_json(res, assert(q_labibus_datahdr:run(dev)))
 end)
 
 OPTIONSM('^/labibus_data/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_data(res, assert(db:run('labibus_data', dev, 20000)))
+	add_data(res, assert(q_labibus_data:run(dev, 20000)))
 end)
 
 OPTIONSM('^/labibus_data/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
   apiheaders(res.headers)
 
-  add_data(res, assert(db:run('labibus_data', dev, howmany)))
+  add_data(res, assert(q_labibus_data:run(dev, howmany)))
 end)
 
 OPTIONSM('^/labibus_blip/(%d+)$', apioptions)
@@ -360,7 +367,7 @@ GETM('^/labibus_last/(%d+)/(%d+)$', function(req, res, dev, ms)
   local since = format('%0.f',
     utils.now() * 1000 - tonumber(ms))
 
-  add_json(res, assert(db:run('labibus_last', dev, since)))
+  add_json(res, assert(q_labibus_last:run(dev, since)))
 end)
 
 OPTIONSM('^/labibus_since/(%d+)/(%d+)$', apioptions)
@@ -370,7 +377,7 @@ GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
     return
   end
   apiheaders(res.headers)
-  add_json(res, assert(db:run('labibus_last', dev, since)))
+  add_json(res, assert(q_labibus_last:run(dev, since)))
 end)
 
 assert(Hathaway('*', arg[1] or 8080))
