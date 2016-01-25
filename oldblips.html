@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+    <title>Powergraph history</title>
+    <!--[if IE]><script type="text/javascript" src="excanvas.js"></script><![endif]-->
+  </head>
+  <body>
+    <h1>Powergraph history</h1>
+    <div id="graph" style="width:800px;height:400px;"></div>
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="jquery.flot.js"></script>
+    <script type="text/javascript">
+    /*global jQuery:false, $:false */
+    /*jslint whitespace:false, indent:4, onevar:false, browser:true */
+    var width = 800;
+    var minuteData = [];
+    $(function () {
+        var options = {
+                lines: { show: true },
+                xaxis: { mode: 'time' },
+                yaxis: {
+		    min : 0,
+                    tickFormatter: function (val, axis) {
+                        return val.toFixed(axis.tickDecimals);
+                    }
+                },
+                colors: [ 'red' ]
+            },
+            data,
+            graph = $('#graph'),
+            timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
+	    mouse_active = false, mouse_activex, mouse_activey, time_origin, time_width,
+            h_mmove, h_mdown, h_mup, h_mleave, setHandlers,
+	    checkFetch, startFetch, dataGot, mergeData, fillGraph,
+	    needRedraw = false,
+	    scheduleRedraw, doRedraw,
+            endTime = (new Date()).getTime();
+        var startTime = endTime - 86400*0.25*1000;
+
+	h_mmove = function(ev) {
+	    var x = ev.pageX;
+	    var y = ev.pageY;
+	    if (mouse_active) {
+		startTime = time_origin - (x - mouse_activex)/width*time_width;
+		endTime = startTime + time_width;
+		checkFetch(minuteData);
+		scheduleRedraw();
+	    }
+	};
+	h_mdown = function(ev) {
+	    var x = ev.pageX;
+	    var y = ev.pageY;
+	    mouse_active = true;
+	    mouse_activex = x;
+	    mouse_activey = y;
+	    time_origin = startTime;
+	    time_width = endTime - startTime;
+	}
+	h_mup = function(ev) {
+	    mouse_active = false;
+	}
+	h_mleave = function(ev) {
+	    mouse_active = false;
+	}
+	setHandlers = function(p, obj) {
+	    obj.mousemove(h_mmove);
+	    obj.mousedown(h_mdown);
+	    obj.mouseup(h_mup);
+	    obj.mouseleave(h_mleave);
+	}
+	options["hooks"] = { bindEvents: [setHandlers] };
+
+	checkFetch = function(d) {
+	    var i;
+	    for (i = 0; i < d.length; ++i) {
+		var a = d[i].a;
+		var b = d[i].b;
+		if (a > startTime) {
+		    // The start of our interval is in a hole, need to fetch.
+		    if (a <= endTime) {
+			// Fetch up to next already fetched data
+			return startFetch(d, startTime, a);
+		    } else {
+			// Fetch our whole interval
+			return startFetch(d, startTime, endTime);
+		    }
+		} else {
+		    if (b >= endTime) {
+			// We already have everything, so done
+			return;
+		    } else if (b < startTime) {
+			// Our interval is later than this point, try next one
+			continue;
+		    } else {
+			// The end of our interval is in a hole, need to fetch
+			if (i+1 < d.length && d[i+1].a <= endTime) {
+			    // Fetch up to next already fetched data
+			    return startFetch(d, b, d[i+1].a);
+			} else {
+			    // Fetch entire rest of interval
+			    return startFetch(d, b, endTime);
+			}
+		    }
+		}
+	    }
+	    // Interval is beyond what we already have, so need to fetch everything
+	    return startFetch(d, startTime, endTime);
+	};
+
+	startFetch = function(d, a, b) {
+	    $.ajax({
+		url: '/minutely/' + a.toString() + '/' + b.toString(),
+		method: 'GET',
+		dataType: 'json',
+		success: function(values) { dataGot(d, a, b, values); }
+	    });
+	}
+
+	dataGot = function(d, a, b, values) {
+	    mergeData(d, a, b, values);
+
+	    // Schedule a new fetch if anything more needed.
+	    setTimeout(function () { checkFetch(d); }, 0);
+
+	    // Schedule a redraw with the newly available data.
+	    scheduleRedraw();
+	};
+
+	mergeData = function(d, a, b, values) {
+	    var i, j;
+
+	    if (d.length == 0 || b < d[0].a) {
+		var data = [ ];
+		for (j = 0; j < values.length; ++j) {
+		    data.push([values[j][0], values[j][2]]);
+		}
+		d.unshift({a: a, b: b, data: data});
+		return;
+	    }
+	    for (i = 0; i < d.length; ++i) {
+		if (d[i].a == b) {
+		    d[i].a = a;
+		    for (j = values.length-1; j >0; --j) {
+			if (values[j][0] == d[i].data[0][0])
+			    continue;
+			d[i].data.unshift([values[j][0], values[j][2]]);
+		    }
+		    return;
+		} else if (d[i].b == a) {
+		    d[i].b = b;
+		    for (j = 0; j < values.length; ++j) {
+			if (values[j][0] == d[i].data[d.length-1][0])
+			    continue;
+			d[i].data.push([values[j][0], values[j][2]]);
+		    }
+		    return;
+		} else if (a > d[i].b) {
+		    var data = [ ];
+		    for (j = 0; j < values.length; ++j) {
+			data.push([values[j][0], values[j][2]]);
+		    }
+		    d.splice(i+1, 0, {a: a, b: b, data: data});
+		    return;
+		}
+	    }
+	};
+
+	scheduleRedraw = function () {
+	    needRedraw = true;
+	    setTimeout(function() {
+		if (needRedraw) { doRedraw(); needRedraw = false; }
+	    }, 0);
+	};
+
+	doRedraw = function() {
+	    var i, j;
+	    var x = [[startTime - timezoneOffset, undefined]];
+
+	    for (i = 0; i < minuteData.length; ++i) {
+		if (minuteData[i].a > endTime)
+		    continue;
+		if (minuteData[i].b < startTime)
+		    break;
+		var data = minuteData[i].data;
+		for (j = 0; j < data.length; ++j) {
+		    if (data[j][0] >= startTime && data[j][0] <= endTime) {
+			if (x[x.length-1][1])
+			    x.push([x[x.length-1][0], data[j][1]]);
+			x.push([data[j][0] - timezoneOffset, data[j][1]]);
+		    }
+		}
+	    }
+	    x.push([x[x.length-1][0], undefined], [endTime - timezoneOffset, undefined]);
+
+	    $.plot(graph, [ x ], options);
+	};
+
+        fillGraph = function (values) {
+	    var i;
+            var newValues = [ ];
+            for (i = 0; i < values.length - 1; i++) {
+                newValues.push([values[i][0] - timezoneOffset,
+                                values[i][2]]);
+                newValues.push([values[i+1][0] - timezoneOffset,
+                                values[i][2]]);
+            }
+            data = newValues;
+
+            $.plot(graph, [ data ], options);
+        };
+
+        if (0)
+	$.ajax({
+            url: '/minutely/' + startTime + '/' + endTime,
+            method: 'GET',
+            dataType: 'json',
+            success: fillGraph
+        });
+	else
+	checkFetch(minuteData);
+    });
+    </script>
+  </body>
+</html>

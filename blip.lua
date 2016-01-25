@@ -135,6 +135,7 @@ local function sendfile(content, path)
 end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
+local oldblips_html = sendfile('text/html; charset=UTF-8', 'oldblips.html')
 local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
 local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
 local lastmonth_html = sendfile('text/html; charset=UTF-8', 'lastmonth.html')
@@ -145,6 +146,7 @@ hathaway.import()
 
 GET('/',               index_html)
 GET('/index.html',     index_html)
+GET('/oldblips.html',  oldblips_html)
 GET('/labibus',        labibus_html)
 GET('/labibus.html',   labibus_html)
 GET('/lastweek.html',  lastweek_html)
@@ -252,6 +254,7 @@ end
 
 local db = assert(qmariadb.connect(dbauth))
 local q_get = assert(db:prepare('SELECT stamp, ms FROM readings WHERE stamp >= ? ORDER BY stamp LIMIT 2000'))
+local q_range = assert(db:prepare('SELECT stamp, ms FROM readings WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'))
 local q_last = assert(db:prepare('SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
 local q_labibus_status = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
 local q_labibus_datahdr = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = ?'))
@@ -259,6 +262,7 @@ local q_labibus_data = assert(db:prepare('select stamp, value from device_log wh
 local q_labibus_last = assert(db:prepare('SELECT stamp, value FROM device_log WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000'))
 local q_aggregate = assert(db:prepare('SELECT ?*((stamp - ?) DIV ?) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=? AND stamp < ?+?*? GROUP BY hour_stamp ORDER BY hour_stamp'))
 local q_hourly = assert(db:prepare('SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= ? AND stamp <= ? ORDER BY stamp'))
+local q_minutely = assert(db:prepare('SELECT stamp, events, wh, min_ms, max_ms FROM usage_minutely WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'))
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
@@ -279,6 +283,16 @@ GETM('^/since/(%d+)$', function(req, res, since)
 	add_json(res, assert(q_get:run(since)))
 end)
 
+OPTIONSM('^/range/(%d+)$', apioptions)
+GETM('^/range/(%d+)$', function(req, res, since, upto)
+	if #since > 15 or #up > 15 then
+		httpserv.bad_request(req, res)
+		return
+	end
+	apiheaders(res.headers)
+	add_json(res, assert(q_range:run(since, upto)))
+end)
+
 OPTIONSM('^/aggregate/(%d+)/(%d+)/(%d+)$', apioptions)
 GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count)
 	if #since > 15 or #interval > 15 or #count > 15 or tonumber(count) > 1000 then
@@ -297,6 +311,16 @@ GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
   end
   apiheaders(res.headers)
   add_json5(res, assert(q_hourly:run(since, last)))
+end)
+
+OPTIONSM('^/minutely/(%d+)/(%d+)$', apioptions)
+GETM('^/minutely/(%d+)/(%d+)$', function(req, res, since, last)
+  if #since > 15 or #last > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json5(res, assert(q_minutely:run(since, last)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)

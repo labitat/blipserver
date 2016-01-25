@@ -3,6 +3,14 @@ CREATE TABLE readings (
 	ms INTEGER NOT NULL
 );
 
+CREATE TABLE readings_minutely (
+       stamp BIGINT PRIMARY KEY,
+       events INTEGER NOT NULL,
+       sum_ms INTEGER NOT NULL,
+       min_ms INTEGER NOT NULL,
+       max_ms INTEGER NOT NULL
+);
+
 CREATE TABLE readings_hourly (
        stamp BIGINT PRIMARY KEY,
        events INTEGER NOT NULL,
