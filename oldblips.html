@@ -9,14 +9,17 @@
   </head>
   <body>
     <h1>Powergraph history</h1>
-    <div id="graph" style="width:800px;height:400px;"></div>
+    <div id="graph"></div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
     /*global jQuery:false, $:false */
     /*jslint whitespace:false, indent:4, onevar:false, browser:true */
     var width = 800;
+    var height = 400;
     var minuteData = [];
+    var hourData = [];
+    var rawData = [];
     $(function () {
         var options = {
                 lines: { show: true },
@@ -32,52 +35,78 @@
             data,
             graph = $('#graph'),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
-	    mouse_active = false, mouse_activex, mouse_activey, time_origin, time_width,
-            h_mmove, h_mdown, h_mup, h_mleave, setHandlers,
+	    mouse_active = false, mouse_zoom = false, mouse_pan = false,
+	    mouse_activex, mouse_activey, time_origin, time_width,
+            h_mmove, h_mdown, h_mstop, setHandlers,
 	    checkFetch, startFetch, dataGot, mergeData,
 	    fetching = false, needRedraw = false,
-	    scheduleRedraw, doRedraw,
+	    getScale, getDataSet, scheduleRedraw, doRedraw,
             endTime = (new Date()).getTime();
         var startTime = endTime - 86400*0.25*1000;
+	graph.width(width);
+	graph.height(height);
 
 	h_mmove = function(ev) {
-	    var x = ev.pageX;
-	    var y = ev.pageY;
+	    var off = graph.offset();
+	    var x = ev.pageX - off.left;
+	    var y = ev.pageY - off.top;
 	    if (mouse_active) {
-		startTime = time_origin - (x - mouse_activex)/width*time_width;
-		endTime = startTime + time_width;
-		checkFetch(minuteData);
-		scheduleRedraw();
+		var dx = x - mouse_activex;
+		var dy = y - mouse_activey;
+		if (!mouse_zoom && !mouse_pan) {
+		    var ax = Math.abs(dx);
+		    var ay = Math.abs(dy);
+		    if (ay >= 15 && ax <= ay/2)
+			mouse_zoom = true;
+		    else if (ax >= 15)
+			mouse_pan = true;
+		}
+		if (mouse_zoom) {
+		    var adj = Math.exp(dy/height*2.7);
+		    var newWidth = time_width*adj;
+		    var mid = (startTime+endTime)/2;
+		    startTime = Math.round(mid - newWidth/2);
+		    endTime = Math.round(mid + newWidth/2);
+		    checkFetch();
+		    scheduleRedraw();
+		}
+		if (mouse_pan) {
+		    startTime = Math.round(time_origin - dx/width*time_width);
+		    endTime = Math.round(startTime + time_width);
+		    checkFetch();
+		    scheduleRedraw();
+		}
 	    }
 	};
 	h_mdown = function(ev) {
-	    var x = ev.pageX;
-	    var y = ev.pageY;
+	    var off = graph.offset();
+	    var x = ev.pageX - off.left;
+	    var y = ev.pageY - off.top;
 	    mouse_active = true;
 	    mouse_activex = x;
 	    mouse_activey = y;
 	    time_origin = startTime;
 	    time_width = endTime - startTime;
 	}
-	h_mup = function(ev) {
+	h_mstop = function(ev) {
 	    mouse_active = false;
-	}
-	h_mleave = function(ev) {
-	    mouse_active = false;
+	    mouse_zoom = false;
+	    mouse_pan = false;
 	}
 	setHandlers = function(p, obj) {
 	    obj.mousemove(h_mmove);
 	    obj.mousedown(h_mdown);
-	    obj.mouseup(h_mup);
-	    obj.mouseleave(h_mleave);
+	    obj.mouseup(h_mstop);
+	    obj.mouseleave(h_mstop);
 	}
 	options["hooks"] = { bindEvents: [setHandlers] };
 
-	checkFetch = function(d) {
-	    var i;
+	checkFetch = function() {
+	    var i, d;
 
 	    if (fetching)
 		return;
+	    d = getDataSet();
 	    for (i = 0; i < d.length; ++i) {
 		var a = d[i].a;
 		var b = d[i].b;
@@ -114,9 +143,17 @@
 	};
 
 	startFetch = function(d, a, b) {
+	    var geturl;
+
 	    fetching = true;
+	    if (d == hourData)
+		geturl = '/hourly/';
+	    else if (d == minuteData)
+		geturl = '/minutely/';
+	    else
+		geturl = '/range/';
 	    $.ajax({
-		url: '/minutely/' + a.toString() + '/' + b.toString(),
+		url: geturl + a.toString() + '/' + b.toString(),
 		method: 'GET',
 		dataType: 'json',
 		success: function(values) { dataGot(d, a, b, values); },
@@ -129,7 +166,7 @@
 	    mergeData(d, a, b, values);
 
 	    // Schedule a new fetch if anything more needed.
-	    setTimeout(function () { checkFetch(d); }, 0);
+	    setTimeout(function () { checkFetch(); }, 0);
 
 	    // Schedule a redraw with the newly available data.
 	    scheduleRedraw();
@@ -137,6 +174,14 @@
 
 	mergeData = function(d, a, b, values) {
 	    var i, j;
+
+	    if (d == rawData) {
+		// Convert the millisecond blip duration to watt-usage
+		for (j = 0; j < values.length; ++j)
+		{
+		    values[j][2] = 3600e3/values[j][1];
+		}
+	    }
 
 	    if (d.length == 0 || b < d[0].a) {
 		var data = [ ];
@@ -174,6 +219,26 @@
 	    }
 	};
 
+	getScale = function() {
+	    var delta = endTime - startTime;
+	    if (delta / 3600e3 > width/4)
+		return 2;
+	    else if (delta / 60e3 > width/4)
+		return 1;
+	    else
+		return 0;
+	}
+
+	getDataSet = function() {
+	    var scale = getScale();
+	    if (scale == 2)
+		return hourData;
+	    else if (scale == 1)
+		return minuteData;
+	    else
+		return rawData;
+	}
+
 	scheduleRedraw = function () {
 	    needRedraw = true;
 	    setTimeout(function() {
@@ -184,13 +249,14 @@
 	doRedraw = function() {
 	    var i, j;
 	    var x = [[startTime - timezoneOffset, undefined]];
+	    var d = getDataSet();
 
-	    for (i = 0; i < minuteData.length; ++i) {
-		if (minuteData[i].a > endTime)
+	    for (i = 0; i < d.length; ++i) {
+		if (d[i].a > endTime)
 		    continue;
-		if (minuteData[i].b < startTime)
+		if (d[i].b < startTime)
 		    break;
-		var data = minuteData[i].data;
+		var data = d[i].data;
 		for (j = 0; j < data.length; ++j) {
 		    if (data[j][0] >= startTime && data[j][0] <= endTime) {
 			if (x[x.length-1][1])
@@ -204,7 +270,7 @@
 	    $.plot(graph, [ x ], options);
 	};
 
-	checkFetch(minuteData);
+	checkFetch();
     });
     </script>
   </body>
