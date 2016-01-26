@@ -34,8 +34,8 @@
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
 	    mouse_active = false, mouse_activex, mouse_activey, time_origin, time_width,
             h_mmove, h_mdown, h_mup, h_mleave, setHandlers,
-	    checkFetch, startFetch, dataGot, mergeData, fillGraph,
-	    needRedraw = false,
+	    checkFetch, startFetch, dataGot, mergeData,
+	    fetching = false, needRedraw = false,
 	    scheduleRedraw, doRedraw,
             endTime = (new Date()).getTime();
         var startTime = endTime - 86400*0.25*1000;
@@ -75,6 +75,9 @@
 
 	checkFetch = function(d) {
 	    var i;
+
+	    if (fetching)
+		return;
 	    for (i = 0; i < d.length; ++i) {
 		var a = d[i].a;
 		var b = d[i].b;
@@ -111,15 +114,18 @@
 	};
 
 	startFetch = function(d, a, b) {
+	    fetching = true;
 	    $.ajax({
 		url: '/minutely/' + a.toString() + '/' + b.toString(),
 		method: 'GET',
 		dataType: 'json',
-		success: function(values) { dataGot(d, a, b, values); }
+		success: function(values) { dataGot(d, a, b, values); },
+		error: function() { fetching = false; }
 	    });
 	}
 
 	dataGot = function(d, a, b, values) {
+	    fetching = false;
 	    mergeData(d, a, b, values);
 
 	    // Schedule a new fetch if anything more needed.
@@ -198,28 +204,6 @@
 	    $.plot(graph, [ x ], options);
 	};
 
-        fillGraph = function (values) {
-	    var i;
-            var newValues = [ ];
-            for (i = 0; i < values.length - 1; i++) {
-                newValues.push([values[i][0] - timezoneOffset,
-                                values[i][2]]);
-                newValues.push([values[i+1][0] - timezoneOffset,
-                                values[i][2]]);
-            }
-            data = newValues;
-
-            $.plot(graph, [ data ], options);
-        };
-
-        if (0)
-	$.ajax({
-            url: '/minutely/' + startTime + '/' + endTime,
-            method: 'GET',
-            dataType: 'json',
-            success: fillGraph
-        });
-	else
 	checkFetch(minuteData);
     });
     </script>
