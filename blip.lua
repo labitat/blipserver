@@ -283,9 +283,9 @@ GETM('^/since/(%d+)$', function(req, res, since)
 	add_json(res, assert(q_get:run(since)))
 end)
 
-OPTIONSM('^/range/(%d+)$', apioptions)
-GETM('^/range/(%d+)$', function(req, res, since, upto)
-	if #since > 15 or #up > 15 then
+OPTIONSM('^/range/(%d+)/(%d+)$', apioptions)
+GETM('^/range/(%d+)/(%d+)$', function(req, res, since, upto)
+	if #since > 15 or #upto > 15 then
 		httpserv.bad_request(req, res)
 		return
 	end
