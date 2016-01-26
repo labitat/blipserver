@@ -10,6 +10,7 @@
   <body>
     <h1>Powergraph history</h1>
     <div id="graph"></div>
+    <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
@@ -34,17 +35,26 @@
             },
             data,
             graph = $('#graph'),
+	    fixbox = document.getElementById("fixbox"),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
 	    mouse_active = false, mouse_zoom = false, mouse_pan = false,
 	    mouse_activex, mouse_activey, time_origin, time_width,
             h_mmove, h_mdown, h_mstop, setHandlers,
+	    fixVertical,
 	    checkFetch, startFetch, dataGot, mergeData,
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw,
+	    maxY = 0,
             endTime = (new Date()).getTime();
         var startTime = endTime - 86400*0.25*1000;
 	graph.width(width);
 	graph.height(height);
+
+	fixbox.onchange = function() {
+	    fixVertical = fixbox.checked;
+	    scheduleRedraw();
+	};
+	fixVertical = fixbox.checked;
 
 	h_mmove = function(ev) {
 	    var off = graph.offset();
@@ -187,6 +197,8 @@
 		var data = [ ];
 		for (j = 0; j < values.length; ++j) {
 		    data.push([values[j][0], values[j][2]]);
+		    if (values[j][2] > maxY)
+			maxY = values[j][2];
 		}
 		d.unshift({a: a, b: b, data: data});
 		return;
@@ -198,6 +210,8 @@
 			if (values[j][0] == d[i].data[0][0])
 			    continue;
 			d[i].data.unshift([values[j][0], values[j][2]]);
+			if (values[j][2] > maxY)
+			    maxY = values[j][2];
 		    }
 		    return;
 		} else if (d[i].b == a) {
@@ -206,12 +220,16 @@
 			if (values[j][0] == d[i].data[d.length-1][0])
 			    continue;
 			d[i].data.push([values[j][0], values[j][2]]);
+			if (values[j][2] > maxY)
+			    maxY = values[j][2];
 		    }
 		    return;
 		} else if (a > d[i].b) {
 		    var data = [ ];
 		    for (j = 0; j < values.length; ++j) {
 			data.push([values[j][0], values[j][2]]);
+			if (values[j][2] > maxY)
+			    maxY = values[j][2];
 		    }
 		    d.splice(i+1, 0, {a: a, b: b, data: data});
 		    return;
@@ -267,6 +285,10 @@
 	    }
 	    x.push([x[x.length-1][0], undefined], [endTime - timezoneOffset, undefined]);
 
+	    if (fixVertical)
+		options.yaxis.max = maxY*1.10;
+	    else
+		options.yaxis.max = undefined;
 	    $.plot(graph, [ x ], options);
 	};
 
