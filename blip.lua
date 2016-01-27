@@ -35,8 +35,8 @@ local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserve
 local blip = queue.new()
 
 utils.spawn(function()
---	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
-	local serial = assert(io.open('/dev/ttyACM1', 'r'))
+	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
+--	local serial = assert(io.open('/dev/tty', 'r'))
 	local db = assert(mariadb.connect(dbauth))
 	local now = utils.now
 	local q_put = assert(db:prepare('INSERT INTO readings VALUES (?, ?)'))
