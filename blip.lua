@@ -34,12 +34,34 @@ local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserve
 
 local blip = queue.new()
 
+function runq(db, query, ...)
+	if (db.conn) then
+		local r, m, e = (db[query][2]):run(...)
+		if (r or (e ~= 2006 and e ~= 2013)) then
+			return r, m, e
+		end
+	end
+	-- Try to reconnect
+	db.conn = assert(mariadb.connect(dbauth))
+	for q_name, q in pairs(db) do
+		if (q_name ~= "conn") then
+			if (type(q) == "string") then
+				q = {q}
+				db[q_name] = q
+			end
+			q[2] = assert((db.conn):prepare(q[1]))
+		end
+	end
+	return assert(db[query][2]):run(...)
+end
+
 utils.spawn(function()
 	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
 --	local serial = assert(io.open('/dev/tty', 'r'))
-	local db = assert(mariadb.connect(dbauth))
+	local db = {
+		put = 'INSERT INTO readings VALUES (?, ?)'
+	}
 	local now = utils.now
-	local q_put = assert(db:prepare('INSERT INTO readings VALUES (?, ?)'))
 
 	-- discard first two readings
 	assert(serial:read('*l'))
@@ -51,7 +73,7 @@ utils.spawn(function()
 
 --		print(stamp, ms, blip.n)
 		blip:signal(stamp, ms)
-		assert(q_put:run(stamp, ms))
+		assert(runq(db, 'put', stamp, ms))
 --		print('waiting for next event')
 	end
 end)
@@ -70,20 +92,22 @@ end
 if false then
 utils.spawn(function()
 	local serial = assert(io.open('/dev/serial/labibus', 'r+'))
-	local db = assert(mariadb.connect(dbauth))
+	local db = {
+		labibus_put = 'INSERT INTO device_log VALUES (?, ?, ?)',
+		-- Placeholders: device,stamp,descr,unit,
+		--               poll_interval,device,descr,unit,poll_interval
+		dev_active = 'INSERT INTO device_history SELECT ?, ?, TRUE, ?, ?, ?' ..
+			' WHERE NOT EXISTS (SELECT 1 FROM device_status ' ..
+			'   WHERE id = ? AND active AND description = ?' ..
+			'     AND unit = ? AND poll_interval = ?)',
+		-- Placeholders: device, stamp
+		dev_inactive = 'INSERT INTO device_history' ..
+			' SELECT ?, ?, FALSE, NULL, NULL, NULL' ..
+			' WHERE EXISTS (SELECT 1 FROM device_status' ..
+			'   WHERE id = ? AND active)'
+	}
+
 	local now = utils.now
-	local q_labibus_put = assert(db:prepare('INSERT INTO device_log VALUES (?, ?, ?)'))
-	-- Placeholders: device,stamp,descr,unit,poll_interval,device,descr,unit,poll_interval
-	local q_dev_active = assert(db:prepare(
-		'INSERT INTO device_history SELECT ?, ?, TRUE, ?, ?, ?' ..
-		' WHERE NOT EXISTS (SELECT 1 FROM device_status ' ..
-		'   WHERE id = ? AND active AND description = ?' ..
-		'     AND unit = ? AND poll_interval = ?)'))
-	-- Placeholders: device, stamp
-	local q_dev_inactive = assert(db:prepare(
-		'INSERT INTO device_history SELECT ?, ?, FALSE, NULL, NULL, NULL' ..
-		' WHERE EXISTS (SELECT 1 FROM device_status' ..
-		'   WHERE id = ? AND active)'))
 
 	-- Sending stuff to the master forces a full status report.
 	assert(serial:write('hitme!\n'))
@@ -100,7 +124,7 @@ utils.spawn(function()
 				q:signal(nil, nil)
 				q:reset()
 			end
-			assert(q_dev_inactive:run(dev, stamp, dev))
+			assert(runq(db, 'dev_inactive', dev, stamp, dev))
 		else
 		local dev, interval, desc_q, unit_q = line:match('^ACTIVE ([0-9]+)|([0-9]+)|([^|]*)|([^|]*)$')
 		if dev then
@@ -109,8 +133,8 @@ utils.spawn(function()
 			if not labibus[dev] then
 				labibus[dev] = queue.new()
 			end
-			assert(q_dev_active:run(dev, stamp, desc, unit, interval,
-						dev, desc, unit, interval))
+			assert(runq(db, 'dev_active', dev, stamp, desc, unit,
+				    interval, dev, desc, unit, interval))
 		else
 		local dev, val = line:match('^POLL ([0-9]+) (.*)$')
 		if dev then
@@ -118,7 +142,7 @@ utils.spawn(function()
 			if q then
 				q:signal(stamp, val)
 			end
-			assert(q_labibus_put:run(dev, stamp, val))
+			assert(runq(db, 'labibus_put', dev, stamp, val))
 		end end end
 	end
 end)
@@ -252,23 +276,34 @@ local function add_device_json(res, values)
 	res:add(']')
 end
 
-local db = assert(qmariadb.connect(dbauth))
-local q_get = assert(db:prepare('SELECT stamp, ms FROM readings WHERE stamp >= ? ORDER BY stamp LIMIT 2000'))
-local q_range = assert(db:prepare('SELECT stamp, ms FROM readings WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'))
-local q_last = assert(db:prepare('SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1'))
-local q_labibus_status = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status ORDER BY id'))
-local q_labibus_datahdr = assert(db:prepare('SELECT id, active, description, unit, poll_interval FROM device_last_active_status WHERE id = ?'))
-local q_labibus_data = assert(db:prepare('select stamp, value from device_log where id = ? order by stamp desc limit ?'))
-local q_labibus_last = assert(db:prepare('SELECT stamp, value FROM device_log WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000'))
-local q_aggregate = assert(db:prepare('SELECT ?*((stamp - ?) DIV ?) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=? AND stamp < ?+?*? GROUP BY hour_stamp ORDER BY hour_stamp'))
-local q_hourly = assert(db:prepare('SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly WHERE stamp >= ? AND stamp <= ? ORDER BY stamp'))
-local q_minutely = assert(db:prepare('SELECT stamp, events, wh, min_ms, max_ms FROM usage_minutely WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'))
+local db = {
+	get = 'SELECT stamp, ms FROM readings WHERE stamp >= ? ORDER BY stamp LIMIT 2000',
+	range = 'SELECT stamp, ms FROM readings WHERE stamp >= ? AND stamp <= ? ' ..
+		'ORDER BY stamp LIMIT 100000',
+	last = 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1',
+	labibus_status = 'SELECT id, active, description, unit, poll_interval ' ..
+		'FROM device_last_active_status ORDER BY id',
+	labibus_datahdr = 'SELECT id, active, description, unit, poll_interval ' ..
+		'FROM device_last_active_status WHERE id = ?',
+	labibus_data = 'select stamp, value from device_log where id = ? ' ..
+		'order by stamp desc limit ?',
+	labibus_last = 'SELECT stamp, value FROM device_log ' ..
+		'WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000',
+	aggregate = 'SELECT ?*((stamp - ?) DIV ?) hour_stamp, COUNT(ms) ' ..
+		'FROM readings ' ..
+		'WHERE stamp >=? AND stamp < ?+?*? ' ..
+		'GROUP BY hour_stamp ORDER BY hour_stamp',
+	hourly = 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_hourly ' ..
+		'WHERE stamp >= ? AND stamp <= ? ORDER BY stamp',
+	minutely = 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_minutely ' ..
+		'WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'
+}
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
 	apiheaders(res.headers)
 
-	local point = assert(q_last:run())[1]
+	local point = assert(runq(db, 'last'))[1]
 
 	res:add('[%s,%s]', point[1], point[2])
 end)
@@ -280,7 +315,7 @@ GETM('^/since/(%d+)$', function(req, res, since)
 		return
 	end
 	apiheaders(res.headers)
-	add_json(res, assert(q_get:run(since)))
+	add_json(res, assert(runq(db, 'get', since)))
 end)
 
 OPTIONSM('^/range/(%d+)/(%d+)$', apioptions)
@@ -290,7 +325,7 @@ GETM('^/range/(%d+)/(%d+)$', function(req, res, since, upto)
 		return
 	end
 	apiheaders(res.headers)
-	add_json(res, assert(q_range:run(since, upto)))
+	add_json(res, assert(runq(db, 'range', since, upto)))
 end)
 
 OPTIONSM('^/aggregate/(%d+)/(%d+)/(%d+)$', apioptions)
@@ -300,7 +335,8 @@ GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count
 		return
 	end
 	apiheaders(res.headers)
-	add_json(res, assert(q_aggregate:run(interval, since, interval, since, since, interval, count)))
+	add_json(res, assert(runq(db, 'aggregate', interval, since,
+				  interval, since, since, interval, count)))
 end)
 
 OPTIONSM('^/hourly/(%d+)/(%d+)$', apioptions)
@@ -310,7 +346,7 @@ GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
     return
   end
   apiheaders(res.headers)
-  add_json5(res, assert(q_hourly:run(since, last)))
+  add_json5(res, assert(runq(db, 'hourly', since, last)))
 end)
 
 OPTIONSM('^/minutely/(%d+)/(%d+)$', apioptions)
@@ -320,7 +356,7 @@ GETM('^/minutely/(%d+)/(%d+)$', function(req, res, since, last)
     return
   end
   apiheaders(res.headers)
-  add_json5(res, assert(q_minutely:run(since, last)))
+  add_json5(res, assert(runq(db, 'minutely', since, last)))
 end)
 
 OPTIONSM('^/last/(%d+)$', apioptions)
@@ -334,7 +370,7 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	local since = format('%0.f',
 		utils.now() * 1000 - tonumber(ms))
 
-	add_json(res, assert(q_get:run(since)))
+	add_json(res, assert(runq(db, 'get', since)))
 end)
 
 
@@ -344,28 +380,28 @@ OPTIONS('/labibus_status', apioptions)
 GET('/labibus_status', function(req, res)
 	apiheaders(res.headers)
 
-	add_device_json(res, assert(q_labibus_status:run()))
+	add_device_json(res, assert(runq(db, 'labibus_status')))
 end)
 
 OPTIONSM('^/labibus_status/(%d+)$', apioptions)
 GETM('^/labibus_status/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_device_json(res, assert(q_labibus_datahdr:run(dev)))
+	add_device_json(res, assert(runq(db, 'labibus_datahdr', dev)))
 end)
 
 OPTIONSM('^/labibus_data/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)$', function(req, res, dev)
 	apiheaders(res.headers)
 
-	add_data(res, assert(q_labibus_data:run(dev, 20000)))
+	add_data(res, assert(runq(db, 'labibus_data', dev, 20000)))
 end)
 
 OPTIONSM('^/labibus_data/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
   apiheaders(res.headers)
 
-  add_data(res, assert(q_labibus_data:run(dev, howmany)))
+  add_data(res, assert(runq(db, 'labibus_data', dev, howmany)))
 end)
 
 OPTIONSM('^/labibus_blip/(%d+)$', apioptions)
@@ -391,7 +427,7 @@ GETM('^/labibus_last/(%d+)/(%d+)$', function(req, res, dev, ms)
   local since = format('%0.f',
     utils.now() * 1000 - tonumber(ms))
 
-  add_json(res, assert(q_labibus_last:run(dev, since)))
+  add_json(res, assert(runq(db, 'labibus_last', dev, since)))
 end)
 
 OPTIONSM('^/labibus_since/(%d+)/(%d+)$', apioptions)
@@ -401,7 +437,7 @@ GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
     return
   end
   apiheaders(res.headers)
-  add_json(res, assert(q_labibus_last:run(dev, since)))
+  add_json(res, assert(runq(db, 'labibus_last', dev, since)))
 end)
 
 assert(Hathaway('*', arg[1] or 8080))
