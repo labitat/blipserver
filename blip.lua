@@ -28,13 +28,23 @@ local assert = assert
 local format = string.format
 local tonumber = tonumber
 
---local mariadb     = require 'lem.mariadb'
---local qmariadb    = require 'lem.mariadb.queued'
---local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
-local postgres     = require 'lem.postgres'
-local qpostgres    = require 'lem.postgres.queued'
-local dbauth = 'user=powermeter dbname=powermeter'
+local whichdb = 'postgres'
+--local whichdb = 'mariadb'
+local serialdev = '/dev/serial/blipduino', 'r'
+--local serialdev = '/dev/tty'
+local dolabibus = true
 
+local dbauth, postgres, qpostgres, mariadb, qmariadb
+if (whichdb == 'mariadb') then
+	mariadb     = require 'lem.mariadb'
+	qmariadb    = require 'lem.mariadb.queued'
+	dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
+end
+if (whichdb == 'postgres') then
+	postgres     = require 'lem.postgres'
+	qpostgres    = require 'lem.postgres.queued'
+	dbauth = 'user=powermeter dbname=powermeter'
+end
 
 local blip = queue.new()
 
@@ -46,7 +56,7 @@ function runq_mariadb(db, query, ...)
 		end
 	end
 	-- Try to reconnect
-	db.conn = assert(mariadb.connect(dbauth))
+	db.conn = assert(qmariadb.connect(dbauth))
 	for q_name, q in pairs(db) do
 		if (q_name ~= "conn") then
 			if (type(q) == "string") then
@@ -67,7 +77,7 @@ function runq_postgres(db, name, ...)
 		return r, m
 	end
 	-- Try to connect
-	db.conn = assert(postgres.connect(dbauth))
+	db.conn = assert(qpostgres.connect(dbauth))
 	for q_name, q in pairs(db) do
 		if (q_name ~= "conn") then
 			-- Convert to postgres-style placeholders $N
@@ -80,15 +90,19 @@ function runq_postgres(db, name, ...)
 			assert((db.conn):prepare(q_name, pq))
 		end
 	end
-	return assert((db.conn):run(name, ...)
+	return (db.conn):run(name, ...)
 end
 
---local runq = runq_mariadb
-local runq = runq.postgres
+local runq
+if (whichdb == 'mariadb') then
+	runq = runq_mariadb
+end
+if (whichdb == 'postgres')  then
+	runq = runq_postgres
+end
 
 utils.spawn(function()
---	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
-	local serial = assert(io.open('/dev/tty', 'r'))
+	local serial = assert(io.open(serialdev, 'r'))
 	local db = {
 		put = 'INSERT INTO readings VALUES (?, ?)'
 	}
@@ -120,7 +134,7 @@ local function unquote(s)
 	return u
 end
 
-if false then
+if dolabibus then
 utils.spawn(function()
 	local serial = assert(io.open('/dev/serial/labibus', 'r+'))
 	local db = {
@@ -329,6 +343,9 @@ local db = {
 	minutely = 'SELECT stamp, events, wh, min_ms, max_ms FROM usage_minutely ' ..
 		'WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'
 }
+if (whichdb == 'postgres') then
+	db.aggregate = 'SELECT ?::DOUBLE PRECISION*DIV(stamp - ?, ?) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=? AND stamp < ?+?::DOUBLE PRECISION*? GROUP BY hour_stamp ORDER BY hour_stamp'
+end
 
 OPTIONS('/last', apioptions)
 GET('/last', function(req, res)
