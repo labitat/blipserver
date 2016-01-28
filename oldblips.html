@@ -21,6 +21,7 @@
     var minuteData = [];
     var hourData = [];
     var rawData = [];
+    var startTime, endTime;
     $(function () {
         var options = {
                 lines: { show: true },
@@ -41,12 +42,12 @@
 	    mouse_activex, mouse_activey, time_origin, time_width,
             h_mmove, h_mdown, h_mstop, setHandlers,
 	    fixVertical,
-	    checkFetch, startFetch, dataGot, mergeData,
+	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw,
-	    maxY = 0,
-            endTime = (new Date()).getTime();
-        var startTime = endTime - 86400*0.25*1000;
+	    maxY = 0;
+        endTime = (new Date()).getTime();
+        startTime = endTime - 86400*0.25*1000;
 	graph.width(width);
 	graph.height(height);
 
@@ -116,40 +117,45 @@
 
 	    if (fetching)
 		return;
-	    d = getDataSet();
-	    for (i = 0; i < d.length; ++i) {
-		var a = d[i].a;
-		var b = d[i].b;
-		if (a > startTime) {
-		    // The start of our interval is in a hole, need to fetch.
-		    if (a <= endTime) {
-			// Fetch up to next already fetched data
-			return startFetch(d, startTime, a);
-		    } else {
-			// Fetch our whole interval
-			return startFetch(d, startTime, endTime);
-		    }
-		} else {
-		    if (b >= endTime) {
-			// We already have everything, so done
-			return;
-		    } else if (b < startTime) {
-			// Our interval is later than this point, try next one
-			continue;
-		    } else {
-			// The end of our interval is in a hole, need to fetch
-			if (i+1 < d.length && d[i+1].a <= endTime) {
-			    // Fetch up to next already fetched data
-			    return startFetch(d, b, d[i+1].a);
-			} else {
-			    // Fetch entire rest of interval
-			    return startFetch(d, b, endTime);
-			}
-		    }
-		}
+	    if (startTime >= endTime) {
+		console.log("Ouch, startTime " + startTime + " >= endTime " + endTime);
+		return;
 	    }
-	    // Interval is beyond what we already have, so need to fetch everything
-	    return startFetch(d, startTime, endTime);
+	    d = getDataSet();
+
+	    // Check for empty existing data.
+	    if (d.length == 0)
+		return startFetch(d, startTime, endTime);
+	    // Check if we are at the very start of already fetched data.
+	    if (startTime < d[0].a)
+		return startFetch(d, startTime, Math.min(endTime, d[0].a));
+	    // Find the first hole that overlaps, if any.
+	    for (i = 0; i < d.length-1; ++i) {
+		var t1 = d[i].b;
+		var t2 = d[i+1].a;
+		if (t1 == t2) {
+		    // No hole here, just not merged chunks.
+		    continue;
+		}
+		if (t1 > t2) {
+		    // Just a sanity check.
+		    console.log("Ouch, out-of-order @ " + i + ": " + t1 + " > " + t2);
+		    return;
+		}
+		if (endTime <= t1) {
+		    // This hole is beyond our interval, so we are done.
+		    return;
+		}
+		if (t2 <= startTime) {
+		    // This hole is too early, continue looking.
+		    continue;
+		}
+		// This hole overlaps, so fetch the relevant part of it.
+		return startFetch(d, Math.max(startTime, t1), Math.min(endTime, t2));
+	    }
+	    // Check if we need to fetch at the end of current data.
+	    if (d[d.length-1].b < endTime)
+		return startFetch(d, Math.max(startTime, d[d.length-1].b), endTime);
 	};
 
 	startFetch = function(d, a, b) {
@@ -172,14 +178,37 @@
 	}
 
 	dataGot = function(d, a, b, values) {
-	    fetching = false;
 	    mergeData(d, a, b, values);
+	    fetching = false;
 
 	    // Schedule a new fetch if anything more needed.
 	    setTimeout(function () { checkFetch(); }, 0);
 
 	    // Schedule a redraw with the newly available data.
 	    scheduleRedraw();
+	};
+
+	tryMergeChunks = function(d, i) {
+	    var c1 = d[i];
+	    var c2 = d[i+1];
+	    if (c1.b != c2.a)
+		return;
+	    var data1 = c1.data;
+	    var data2 = c2.data;
+	    if ((data1.length > 2000 && data2.length > 0) ||
+		(data2.length > 2000 && data1.length > 0)) {
+		// Let's not merge to avoid a too large chunk.
+		return;
+	    }
+	    // Merge d[i] with d[i+1].
+	    c1.b = c2.b;
+	    var j;
+	    for (j = 0; j < data2.length; ++j) {
+		if (data1.length > 0 && data2[j][0] == data1[data1.length-1][0])
+		    continue;
+		data1.push(data2[j]);
+	    }
+	    d.splice(i+1, 1);
 	};
 
 	mergeData = function(d, a, b, values) {
@@ -193,48 +222,24 @@
 		}
 	    }
 
-	    if (d.length == 0 || b < d[0].a) {
-		var data = [ ];
-		for (j = 0; j < values.length; ++j) {
-		    data.push([values[j][0], values[j][2]]);
-		    if (values[j][2] > maxY)
-			maxY = values[j][2];
-		}
-		d.unshift({a: a, b: b, data: data});
-		return;
-	    }
+	    // Find the right spot to insert the new chunk.
 	    for (i = 0; i < d.length; ++i) {
-		if (d[i].a == b) {
-		    d[i].a = a;
-		    for (j = values.length-1; j >0; --j) {
-			if (values[j][0] == d[i].data[0][0])
-			    continue;
-			d[i].data.unshift([values[j][0], values[j][2]]);
-			if (values[j][2] > maxY)
-			    maxY = values[j][2];
-		    }
-		    return;
-		} else if (d[i].b == a) {
-		    d[i].b = b;
-		    for (j = 0; j < values.length; ++j) {
-			if (values[j][0] == d[i].data[d.length-1][0])
-			    continue;
-			d[i].data.push([values[j][0], values[j][2]]);
-			if (values[j][2] > maxY)
-			    maxY = values[j][2];
-		    }
-		    return;
-		} else if (a > d[i].b) {
-		    var data = [ ];
-		    for (j = 0; j < values.length; ++j) {
-			data.push([values[j][0], values[j][2]]);
-			if (values[j][2] > maxY)
-			    maxY = values[j][2];
-		    }
-		    d.splice(i+1, 0, {a: a, b: b, data: data});
-		    return;
-		}
+		if (d[i].a >= b)
+		    break;
 	    }
+	    var data = [ ];
+	    for (j = 0; j < values.length; ++j) {
+		data.push([values[j][0], values[j][2]]);
+		if (values[j][2] > maxY)
+		    maxY = values[j][2];
+	    }
+	    d.splice(i, 0, {a: a, b: b, data: data});
+
+	    // Check if we should merge with the following chunk, and/or the prior.
+	    if (i < d.length-1)
+		tryMergeChunks(d, i);
+	    if (i > 0)
+		tryMergeChunks(d, i-1);
 	};
 
 	getScale = function() {
@@ -271,9 +276,9 @@
 
 	    for (i = 0; i < d.length; ++i) {
 		if (d[i].a > endTime)
-		    continue;
-		if (d[i].b < startTime)
 		    break;
+		if (d[i].b < startTime)
+		    continue;
 		var data = d[i].data;
 		for (j = 0; j < data.length; ++j) {
 		    if (data[j][0] >= startTime && data[j][0] <= endTime) {
