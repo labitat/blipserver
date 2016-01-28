@@ -21,8 +21,6 @@
 local utils        = require 'lem.utils'
 local queue        = require 'lem.queue'
 local io           = require 'lem.io'
-local mariadb     = require 'lem.mariadb'
-local qmariadb    = require 'lem.mariadb.queued'
 local httpserv     = require 'lem.http.server'
 local hathaway     = require 'lem.hathaway'
 
@@ -30,11 +28,17 @@ local assert = assert
 local format = string.format
 local tonumber = tonumber
 
-local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
+--local mariadb     = require 'lem.mariadb'
+--local qmariadb    = require 'lem.mariadb.queued'
+--local dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
+local postgres     = require 'lem.postgres'
+local qpostgres    = require 'lem.postgres.queued'
+local dbauth = 'user=powermeter dbname=powermeter'
+
 
 local blip = queue.new()
 
-function runq(db, query, ...)
+function runq_mariadb(db, query, ...)
 	if (db.conn) then
 		local r, m, e = (db[query][2]):run(...)
 		if (r or (e ~= 2006 and e ~= 2013)) then
@@ -55,9 +59,36 @@ function runq(db, query, ...)
 	return assert(db[query][2]):run(...)
 end
 
+function runq_postgres(db, name, ...)
+	if (db.conn) then
+		local r, m = ((db.conn):run(name, ...))
+		-- ToDo: Check for connection lost failure, and if so, fall
+		-- through to reconnect and retry the query.
+		return r, m
+	end
+	-- Try to connect
+	db.conn = assert(postgres.connect(dbauth))
+	for q_name, q in pairs(db) do
+		if (q_name ~= "conn") then
+			-- Convert to postgres-style placeholders $N
+			local idx = 0
+			local f = function ()
+				idx = idx+1
+				return "$" .. idx
+			end
+			local pq = string.gsub(q, "%?", f) 
+			assert((db.conn):prepare(q_name, pq))
+		end
+	end
+	return assert((db.conn):run(name, ...)
+end
+
+--local runq = runq_mariadb
+local runq = runq.postgres
+
 utils.spawn(function()
-	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
---	local serial = assert(io.open('/dev/tty', 'r'))
+--	local serial = assert(io.open('/dev/serial/blipduino', 'r'))
+	local serial = assert(io.open('/dev/tty', 'r'))
 	local db = {
 		put = 'INSERT INTO readings VALUES (?, ?)'
 	}
