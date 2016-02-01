@@ -30,9 +30,8 @@ local tonumber = tonumber
 
 local whichdb = 'postgres'
 --local whichdb = 'mariadb'
-local serialdev = '/dev/serial/blipduino', 'r'
+local serialdev = '/dev/serial/blipduino'
 --local serialdev = '/dev/tty'
-local dolabibus = true
 
 local dbauth, postgres, qpostgres, mariadb, qmariadb
 if (whichdb == 'mariadb') then
@@ -124,75 +123,6 @@ utils.spawn(function()
 end)
 
 
--- Labibus.
-
-local labibus = { }
-
-local function unquote(s)
-	local repl = function(m) return string.char(tonumber(m, 16)) end
-	local u = s:gsub('\\([0-9a-fA-F][0-9a-fA-F])', repl)
-	return u
-end
-
-if dolabibus then
-utils.spawn(function()
-	local serial = assert(io.open('/dev/serial/labibus', 'r+'))
-	local db = {
-		labibus_put = 'INSERT INTO device_log VALUES (?, ?, ?)',
-		-- Placeholders: device,stamp,descr,unit,
-		--               poll_interval,device,descr,unit,poll_interval
-		dev_active = 'INSERT INTO device_history SELECT ?, ?, TRUE, ?, ?, ?' ..
-			' WHERE NOT EXISTS (SELECT 1 FROM device_status ' ..
-			'   WHERE id = ? AND active AND description = ?' ..
-			'     AND unit = ? AND poll_interval = ?)',
-		-- Placeholders: device, stamp
-		dev_inactive = 'INSERT INTO device_history' ..
-			' SELECT ?, ?, FALSE, NULL, NULL, NULL' ..
-			' WHERE EXISTS (SELECT 1 FROM device_status' ..
-			'   WHERE id = ? AND active)'
-	}
-
-	local now = utils.now
-
-	-- Sending stuff to the master forces a full status report.
-	assert(serial:write('hitme!\n'))
-
-	while true do
-		local line = assert(serial:read('*l'))
-		local stamp = format('%0.f', now() * 1000)
-
-		local dev = line:match('^INACTIVE ([0-9]+)$')
-		if dev then
-			local q = labibus[dev]
-			if q then
-				labibus[dev] = nil
-				q:signal(nil, nil)
-				q:reset()
-			end
-			assert(runq(db, 'dev_inactive', dev, stamp, dev))
-		else
-		local dev, interval, desc_q, unit_q = line:match('^ACTIVE ([0-9]+)|([0-9]+)|([^|]*)|([^|]*)$')
-		if dev then
-			local desc = unquote(desc_q)
-			local unit = unquote(unit_q)
-			if not labibus[dev] then
-				labibus[dev] = queue.new()
-			end
-			assert(runq(db, 'dev_active', dev, stamp, desc, unit,
-				    interval, dev, desc, unit, interval))
-		else
-		local dev, val = line:match('^POLL ([0-9]+) (.*)$')
-		if dev then
-			local q = labibus[dev]
-			if q then
-				q:signal(stamp, val)
-			end
-			assert(runq(db, 'labibus_put', dev, stamp, val))
-		end end end
-	end
-end)
-end
-
 local function sendfile(content, path)
 	local file = assert(io.open(path))
 	local size = assert(file:size())
@@ -205,7 +135,7 @@ end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
 local oldblips_html = sendfile('text/html; charset=UTF-8', 'oldblips.html')
-local labibus_html = sendfile('text/html; charset=UTF-8', 'labibus.html')
+local labibus_html = sendfile('text/html; charset=UTF-8', 'power_labibus.html')
 local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
 local lastmonth_html = sendfile('text/html; charset=UTF-8', 'lastmonth.html')
 local lastyear_html = sendfile('text/html; charset=UTF-8', 'lastyear.html')
@@ -281,59 +211,12 @@ local function add_json5(res, values)
   res:add(']')
 end
 
-local function add_data(res, values)
-	res:add('[')
-
-	local n = #values
-	if n > 0 then
-		for i = 1, n-1 do
-			local point = values[i]
-			res:add('[%s,%s],', point[1], point[2])
-		end
-		local point = values[n]
-		res:add('[%s,%s]', point[1], point[2])
-	end
-
-	res:add(']')
-end
-
-local function add_device_json(res, values)
-	res:add('[')
-
-	local n = #values
-	if n > 0 then
-		for i = 1, n-1 do
-			local r = values[i]
-			if r[2] == "t" then
-				res:add('[%s,1,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
-			else
-				res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
-			end
-		end
-		local r = values[n]
-		if r[2] == "t" then
-			res:add('[%s,1,%s,%s,%s]', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
-		else
-			res:add('[%s,0,%s,%s,%s],', r[1], string.format("%q",r[3]), string.format("%q",r[4]), r[5])
-		end
-	end
-
-	res:add(']')
-end
 
 local db = {
 	get = 'SELECT stamp, ms FROM readings WHERE stamp >= ? ORDER BY stamp LIMIT 2000',
 	range = 'SELECT stamp, ms FROM readings WHERE stamp >= ? AND stamp <= ? ' ..
 		'ORDER BY stamp LIMIT 100000',
 	last = 'SELECT stamp, ms FROM readings ORDER BY stamp DESC LIMIT 1',
-	labibus_status = 'SELECT id, active, description, unit, poll_interval ' ..
-		'FROM device_last_active_status ORDER BY id',
-	labibus_datahdr = 'SELECT id, active, description, unit, poll_interval ' ..
-		'FROM device_last_active_status WHERE id = ?',
-	labibus_data = 'select stamp, value from device_log where id = ? ' ..
-		'order by stamp desc limit ?',
-	labibus_last = 'SELECT stamp, value FROM device_log ' ..
-		'WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000',
 	aggregate = 'SELECT ?*((stamp - ?) DIV ?) hour_stamp, COUNT(ms) ' ..
 		'FROM readings ' ..
 		'WHERE stamp >=? AND stamp < ?+?*? ' ..
@@ -421,72 +304,6 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	add_json(res, assert(runq(db, 'get', since)))
 end)
 
-
--- Labibus
-
-OPTIONS('/labibus_status', apioptions)
-GET('/labibus_status', function(req, res)
-	apiheaders(res.headers)
-
-	add_device_json(res, assert(runq(db, 'labibus_status')))
-end)
-
-OPTIONSM('^/labibus_status/(%d+)$', apioptions)
-GETM('^/labibus_status/(%d+)$', function(req, res, dev)
-	apiheaders(res.headers)
-
-	add_device_json(res, assert(runq(db, 'labibus_datahdr', dev)))
-end)
-
-OPTIONSM('^/labibus_data/(%d+)$', apioptions)
-GETM('^/labibus_data/(%d+)$', function(req, res, dev)
-	apiheaders(res.headers)
-
-	add_data(res, assert(runq(db, 'labibus_data', dev, 20000)))
-end)
-
-OPTIONSM('^/labibus_data/(%d+)/(%d+)$', apioptions)
-GETM('^/labibus_data/(%d+)/(%d+)$', function(req, res, dev, howmany)
-  apiheaders(res.headers)
-
-  add_data(res, assert(runq(db, 'labibus_data', dev, howmany)))
-end)
-
-OPTIONSM('^/labibus_blip/(%d+)$', apioptions)
-GETM('^/labibus_blip/(%d+)$', function(req, res, dev)
-	apiheaders(res.headers)
-	local q = labibus[dev]
-	if q then
-		local stamp, val = q:get()
-		if stamp then
-			res:add('[%s,%s]', stamp, val)
-		end
-	end
-end)
-
-OPTIONSM('^/labibus_last/(%d+)/(%d+)$', apioptions)
-GETM('^/labibus_last/(%d+)/(%d+)$', function(req, res, dev, ms)
-  if #ms > 15 then
-    httpserv.bad_request(req, res)
-    return
-  end
-  apiheaders(res.headers)
-
-  local since = format('%0.f',
-    utils.now() * 1000 - tonumber(ms))
-
-  add_json(res, assert(runq(db, 'labibus_last', dev, since)))
-end)
-
-OPTIONSM('^/labibus_since/(%d+)/(%d+)$', apioptions)
-GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
-  if #since > 15 then
-    httpserv.bad_request(req, res)
-    return
-  end
-  apiheaders(res.headers)
-  add_json(res, assert(runq(db, 'labibus_last', dev, since)))
-end)
 
 assert(Hathaway('*', arg[1] or 8080))
 

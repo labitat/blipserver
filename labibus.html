@@ -126,14 +126,14 @@
             }
 
             $.ajax({
-                url: 'https://power.labitat.dk/labibus_last/' + currentDevice + '/3600000',
+                url: 'labibus_last/' + currentDevice + '/3600000',
                 method: 'GET',
                 dataType: 'json',
                 success: fillGraph
             });
 
             $.ajax({
-                url: 'https://power.labitat.dk/labibus_last/' + currentDevice + '/86400000',
+                url: 'labibus_last/' + currentDevice + '/86400000',
                 method: 'GET',
                 dataType: 'json',
                 success: fillGraphLong
