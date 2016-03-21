@@ -45,3 +45,43 @@ CREATE TRIGGER monthly_aggregate AFTER INSERT
    FOR EACH ROW
 EXECUTE PROCEDURE do_monthly_aggregate();
 
+CREATE OR REPLACE FUNCTION labibus_monthly_aggregate() RETURNS trigger AS
+$BODY$
+DECLARE
+  as_date TIMESTAMP WITH TIME ZONE;
+  hour BIGINT;
+  minute BIGINT;
+BEGIN
+  as_date := TIMESTAMP WITH TIME ZONE 'epoch' + trunc(NEW.stamp/1000) * INTERVAL '1 second';
+  hour := 1000::BIGINT * extract(epoch from date_trunc('hour', as_date));
+  minute := 1000::BIGINT * extract(epoch from date_trunc('minute', as_date));
+  INSERT INTO device_log_hourly (id, stamp, events, sum_value, sum_sqvalue, min_value, max_value)
+  SELECT NEW.id, hour, 0, 0, 0, NEW.value, NEW.value
+   WHERE NOT EXISTS (SELECT 1 FROM device_log_hourly R WHERE R.id = NEW.id AND R.stamp=hour);
+  UPDATE device_log_hourly
+     SET events = events + 1,
+         sum_value = sum_value + NEW.value,
+         sum_sqvalue = sum_sqvalue + NEW.value*NEW.value,
+         min_value = LEAST(min_value, NEW.value),
+         max_value = GREATEST(max_value, NEW.value)
+   WHERE id = NEW.id AND stamp = hour;
+  INSERT INTO device_log_minutely (id, stamp, events, sum_value, sum_sqvalue, min_value, max_value)
+  SELECT NEW.id, minute, 0, 0, 0, NEW.value, NEW.value
+   WHERE NOT EXISTS (SELECT 1 FROM device_log_minutely R WHERE R.id = NEW.id AND R.stamp=minute);
+  UPDATE device_log_minutely
+     SET events = events + 1,
+         sum_value = sum_value + NEW.value,
+         sum_sqvalue = sum_sqvalue + NEW.value*NEW.value,
+         min_value = LEAST(min_value, NEW.value),
+         max_value = GREATEST(max_value, NEW.value)
+   WHERE id = NEW.id AND stamp = minute;
+  RETURN NEW;
+END;
+$BODY$
+LANGUAGE plpgsql VOLATILE
+COST 100;
+
+CREATE TRIGGER monthly_aggregate AFTER INSERT
+    ON device_log
+   FOR EACH ROW
+EXECUTE PROCEDURE labibus_monthly_aggregate();

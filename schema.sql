@@ -64,6 +64,26 @@ CREATE TABLE device_log (
   value FLOAT(24) NOT NULL,
   PRIMARY KEY (id, stamp));
 
+CREATE TABLE device_log_minutely (
+  id INTEGER NOT NULL,
+  stamp BIGINT NOT NULL,
+  events INTEGER NOT NULL,
+  sum_value FLOAT(24) NOT NULL,
+  sum_sqvalue FLOAT(24) NOT NULL,
+  min_value FLOAT(24) NOT NULL,
+  max_value FLOAT(24) NOT NULL,
+  PRIMARY KEY (id, stamp));
+
+CREATE TABLE device_log_hourly (
+  id INTEGER NOT NULL,
+  stamp BIGINT NOT NULL,
+  events INTEGER NOT NULL,
+  sum_value FLOAT(24) NOT NULL,
+  sum_sqvalue FLOAT(24) NOT NULL,
+  min_value FLOAT(24) NOT NULL,
+  max_value FLOAT(24) NOT NULL,
+  PRIMARY KEY (id, stamp));
+
 CREATE VIEW device_log_full AS
 SELECT L.id, L.stamp, L.value, H.description, H.unit
   FROM device_log L
