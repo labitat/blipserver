@@ -18,6 +18,10 @@
       Range: <b><span id="rangetext">?</span></b>
     </div>
     <div>
+    Last update:
+      <code id="lastblip"><a href="http://browsehappy.com/">http://browsehappy.com/</a></code>
+    </div>
+    <div>
       &nbsp;&nbsp;Change to:
         <a href="#changeminute" onclick="setRange(60);">minute</a>
         <a href="#changeminute" onclick="setRange(15*60);">15min</a>
@@ -64,10 +68,13 @@
 	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
-	    fetchStatus,
-	    maxY = 0;
+	    fetchStatus, callHome, onBlipReceived, onBlipError, processBlip,
+	    handleBlip,
+	    maxY = 0,
+	    blipQueue = [],
+	    firstBlip = true;
         endTime = (new Date()).getTime();
-        startTime = endTime - 86400*0.25*1000;
+        startTime = endTime - 60*20*1000;
 	graph.width(width);
 	graph.height(height);
 
@@ -80,6 +87,13 @@
 	setRange = function(seconds) {
 	    var delta = seconds*1000;
 	    endTime = (new Date()).getTime();
+	    // Try to correct for any time skew with server.
+	    var d = getDataSet();
+	    if (d.length > 0) {
+		var lastData = d[d.length-1].data;
+		if (endTime < lastData[lastData.length-1][0])
+		    endTime = lastData[lastData.length-1][0];
+	    }
 	    startTime = endTime - delta;
 	    checkFetch();
 	    scheduleRedraw();
@@ -190,6 +204,12 @@
 	    fetching = status;
 	    document.getElementById("statustext").textContent =
 		(status ? "loading..." : "ready");
+	    if (!status) {
+		var i;
+		for (i = 0; i < blipQueue.length; ++i)
+		    handleBlip(blipQueue[i]);
+		blipQueue = [];
+	    }
 	}
 
 	startFetch = function(d, a, b) {
@@ -341,10 +361,8 @@
 
 	    document.getElementById("scaletext").textContent =
 		(d == hourData ? "hour" : (d == minuteData ? "minute" : "none"));
-	    var startDate = new Date();
-	    startDate.setTime(startTime);
-	    var endDate = new Date();
-	    endDate.setTime(endTime);
+	    var startDate = new Date(startTime);
+	    var endDate = new Date(endTime);
 	    document.getElementById("rangetext").textContent =
 		startDate.toLocaleString() + " to " + endDate.toLocaleString();
 
@@ -396,8 +414,103 @@
 	    $.plot(graph, [ x ], options);
 	};
 
+        callHome = function () {
+            $.ajax({
+                url: '/blip',
+                method: 'GET',
+                dataType: 'json',
+                success: onBlipReceived,
+                error: onBlipError
+            });
+        };
+
+	onBlipError = function() {
+            setTimeout(callHome, 20000);
+        };
+
+	onBlipReceived = function(point) {
+	    var time = new Date(point[0]);
+	    var value = (point[1] > 0 ? 3600e3/point[1] : 0);
+	    document.getElementById("lastblip").textContent =
+		time.toString() + ' - ' + point[1] + 'ms -> ' + value.toFixed(0) + 'W';
+	    if (fetching) {
+		// Just put the blip in queue, to avoid racing against the
+		// fetch. The blip will be handled once the fetch is complete.
+		blipQueue.push(point);
+	    } else {
+		handleBlip(point);
+	    }
+	}
+
+	handleBlip = function(point) {
+            var stamp = point[0],
+                ms = point[1],
+                time = new Date(stamp);
+	    var value = (ms > 0 ? 3600e3/ms : undefined);
+	    var d = rawData;
+	    if (d.length > 0) {
+		var lastData = d[d.length-1].data;
+		if (lastData.length > 0 && stamp <= lastData[lastData.length-1][0]) {
+		    // We somehow already have a newer point, so ignore this blip.
+		    return processBlip(false, stamp);
+		}
+		if (lastData.b >= stamp) {
+		    // This blip fits in the last chunk.
+		    lastData.push([stamp, value]);
+		    return processBlip(true, stamp);
+		}
+		if (!firstBlip) {
+		    // Already have prior blips, so can put another one.
+		    lastData.push([stamp, value]);
+		    if (d[d.length-1].b < stamp)
+			d[d.length-1].b = stamp;
+		    return processBlip(true, stamp);
+		}
+	    }
+
+	    mergeData(d, stamp-ms, stamp, [stamp, ms]);
+	    return processBlip(true, stamp);
+	};
+
+	processBlip = function(doBlip, stamp) {
+	    // Check if we should scroll the graph to show the new blip.
+	    var doScroll = false;
+	    var doRedraw = false;
+	    if (!doBlip) {
+		// Ignore this blip.
+	    } else if (getScale() != 0) {
+		// New blips only visible when no DB aggregation.
+	    } else if (startTime <= stamp && stamp <= endTime) {
+		// Already visible, just redraw.
+		doRedraw = true;
+	    } else if (rawData.length == 0) {
+		// Probably impossible, but just in case...
+	    } else if (stamp < startTime) {
+		// We are somehow ahead of the new blip, no scroll.
+	    } else if (stamp < endTime + 0.25*(endTime - startTime)) {
+		// Blip is a bit ahead, let's scroll to make it visible.
+		doScroll = true;
+		doRedraw = true;
+	    }
+
+	    if (doScroll) {
+		var newEnd = stamp;
+		startTime += newEnd - endTime;
+		endTime = newEnd;
+		checkFetch();
+	    }
+	    if (doRedraw)
+		scheduleRedraw();
+
+	    if (doBlip)
+		firstBlip = false;
+	    callHome();
+	}
+
 	checkFetch();
+	callHome();
     });
     </script>
+    <a href="https://github.com/labitat/blipserver"><img style="position: absolute; top: 0; right: 0; border: 0;" src="ribbon.png" alt="Fork me on GitHub"></a>
   </body>
 </html>
