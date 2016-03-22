@@ -18,10 +18,6 @@
       Range: <b><span id="rangetext">?</span></b>
     </div>
     <div>
-    Last update:
-      <code id="lastblip"><a href="http://browsehappy.com/">http://browsehappy.com/</a></code>
-    </div>
-    <div>
       &nbsp;&nbsp;Change to:
         <a href="#changeminute" onclick="setRange(60);">minute</a>
         <a href="#changeminute" onclick="setRange(15*60);">15min</a>
@@ -30,6 +26,10 @@
         <a href="#changeminute" onclick="setRange(7*86400);">week</a>
         <a href="#changeminute" onclick="setRange(31*86400);">month</a>
         <a href="#changeminute" onclick="setRange(Math.round(Math.PI*1e7));">year</a>
+    </div>
+    <div>
+    Last update:
+      <code id="lastblip"><a href="http://browsehappy.com/">http://browsehappy.com/</a></code>
     </div>
     <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
     <div>Click+drag mouse on graph to pan and zoom.</div>
