@@ -10,9 +10,25 @@
   <body>
     <h1>Powergraph history</h1>
     <div id="graph"></div>
-    <div>Aggregation: <span id="scaletext">minute</span></div>
-    <div>Click+drag mouse on graph to pan and zoom.</div>
+    <div>
+      Aggregation: <b><span id="scaletext">minute</span></b>
+      &nbsp;&nbsp;Status: <b><span id="statustext">?</span></b>
+    </div>
+    <div>
+      Range: <b><span id="rangetext">?</span></b>
+    </div>
+    <div>
+      &nbsp;&nbsp;Change to:
+        <a href="#changeminute" onclick="setRange(60);">minute</a>
+        <a href="#changeminute" onclick="setRange(15*60);">15min</a>
+        <a href="#changeminute" onclick="setRange(3600);">hour</a>
+        <a href="#changeminute" onclick="setRange(86400);">day</a>
+        <a href="#changeminute" onclick="setRange(7*86400);">week</a>
+        <a href="#changeminute" onclick="setRange(31*86400);">month</a>
+        <a href="#changeminute" onclick="setRange(Math.round(Math.PI*1e7));">year</a>
+    </div>
     <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
+    <div>Click+drag mouse on graph to pan and zoom.</div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
@@ -24,6 +40,7 @@
     var hourData = [];
     var rawData = [];
     var startTime, endTime;
+    var setRange;
     $(function () {
         var options = {
                 lines: { show: true },
@@ -47,6 +64,7 @@
 	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
+	    fetchStatus,
 	    maxY = 0;
         endTime = (new Date()).getTime();
         startTime = endTime - 86400*0.25*1000;
@@ -58,6 +76,14 @@
 	    scheduleRedraw();
 	};
 	fixVertical = fixbox.checked;
+
+	setRange = function(seconds) {
+	    var delta = seconds*1000;
+	    endTime = (new Date()).getTime();
+	    startTime = endTime - delta;
+	    checkFetch();
+	    scheduleRedraw();
+	};
 
 	h_mmove = function(ev) {
 	    var off = graph.offset();
@@ -160,10 +186,16 @@
 		return startFetch(d, Math.max(startTime, d[d.length-1].b), endTime);
 	};
 
+	fetchStatus = function(status) {
+	    fetching = status;
+	    document.getElementById("statustext").textContent =
+		(status ? "loading..." : "ready");
+	}
+
 	startFetch = function(d, a, b) {
 	    var geturl;
 
-	    fetching = true;
+	    fetchStatus(true);
 	    if (d == hourData)
 		geturl = '/hourly/';
 	    else if (d == minuteData)
@@ -175,13 +207,13 @@
 		method: 'GET',
 		dataType: 'json',
 		success: function(values) { dataGot(d, a, b, values); },
-		error: function() { fetching = false; }
+		error: function() { fetchStatus(false); }
 	    });
 	}
 
 	dataGot = function(d, a, b, values) {
 	    mergeData(d, a, b, values);
-	    fetching = false;
+	    fetchStatus(false);
 
 	    // Schedule a new fetch if anything more needed.
 	    setTimeout(function () { checkFetch(); }, 0);
@@ -307,8 +339,14 @@
 	    var d = getDataSet();
 	    var lastbin;
 
-	    document.getElementById("scaletext").innerHTML =
+	    document.getElementById("scaletext").textContent =
 		(d == hourData ? "hour" : (d == minuteData ? "minute" : "none"));
+	    var startDate = new Date();
+	    startDate.setTime(startTime);
+	    var endDate = new Date();
+	    endDate.setTime(endTime);
+	    document.getElementById("rangetext").textContent =
+		startDate.toLocaleString() + " to " + endDate.toLocaleString();
 
 	    for (i = 0; i < d.length; ++i) {
 		if (d[i].a > endTime)
