@@ -10,6 +10,7 @@
   <body>
     <h1>Powergraph history</h1>
     <div id="graph"></div>
+    <div>Aggregation: <span id="scaletext">minute</span></div>
     <div>Click+drag mouse on graph to pan and zoom.</div>
     <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
     <script type="text/javascript" src="jquery.js"></script>
@@ -45,7 +46,7 @@
 	    fixVertical,
 	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
 	    fetching = false, needRedraw = false,
-	    getScale, getDataSet, scheduleRedraw, doRedraw,
+	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
 	    maxY = 0;
         endTime = (new Date()).getTime();
         startTime = endTime - 86400*0.25*1000;
@@ -170,7 +171,7 @@
 	    else
 		geturl = '/range/';
 	    $.ajax({
-		url: geturl + a.toString() + '/' + b.toString(),
+               url: geturl + a.toString() + '/' + b.toString(),
 		method: 'GET',
 		dataType: 'json',
 		success: function(values) { dataGot(d, a, b, values); },
@@ -270,10 +271,44 @@
 	    }, 0);
 	};
 
+	chooseBinSize = function(bins, delta) {
+	    var binsizes = [1, 2, 5, 10, 15, 30,
+			    60, 60*2, 60*5, 60*10, 60*15, 60*30, 60*60].
+		map(function(x) { return x*1000; });
+	    var i;
+
+	    for (i = 0; i < binsizes.length; ++i) {
+		if ((delta / binsizes[i]) <= bins)
+		    break;
+	    }
+	    var binsize;
+	    if (i == 0) {
+		binsize = binsizes[i];
+		while (2*delta/binsize <= bins && binsize > 1e-6) {
+		    binsize /= 2;
+		}
+	    }
+	    else if (i >= binsizes.length) {
+		binsize = binsizes[binsizes.length-1];
+		while (delta/binsize > bins)
+		    binsize *= 2;
+	    }
+	    else
+		binsize = binsizes[i];
+	    return binsize;
+	};
+
 	doRedraw = function() {
+	    var bin = 1000;
 	    var i, j;
+	    var z = [];
+	    var y = [];
 	    var x = [[startTime - timezoneOffset, undefined]];
 	    var d = getDataSet();
+	    var lastbin;
+
+	    document.getElementById("scaletext").innerHTML =
+		(d == hourData ? "hour" : (d == minuteData ? "minute" : "none"));
 
 	    for (i = 0; i < d.length; ++i) {
 		if (d[i].a > endTime)
@@ -283,11 +318,36 @@
 		var data = d[i].data;
 		for (j = 0; j < data.length; ++j) {
 		    if (data[j][0] >= startTime && data[j][0] <= endTime) {
-			if (x[x.length-1][1])
-			    x.push([x[x.length-1][0], data[j][1]]);
-			x.push([data[j][0] - timezoneOffset, data[j][1]]);
+			z.push([data[j][0], data[j][1]]);
 		    }
 		}
+	    }
+	    if (z.length <= bin) {
+		for (i = 0; i < z.length; ++i) {
+		    y.push([z[i][0], z[i][1], 1]);
+		}
+	    } else {
+		var binsize = chooseBinSize(bin, endTime - startTime);
+		if (z.length > 0) {
+		    lastbin = Math.floor(z[0][0]/binsize)*binsize;
+		    y.push([lastbin, z[0][1], 1]);
+		}
+		for (i = 1; i < z.length; ++i) {
+		    var newbin = Math.floor(z[i][0]/binsize)*binsize;
+		    if (newbin == lastbin) {
+			y[y.length-1][1] += z[i][1];
+			++y[y.length-1][2];
+		    } else {
+			y.push([newbin, z[i][1], 1]);
+			lastbin = newbin;
+		    }
+		}
+	    }
+	    for (i = 0; i < y.length; ++i) {
+		var datapoint = y[i][1]/y[i][2];
+		if (x[x.length-1][1])
+		    x.push([x[x.length-1][0], datapoint]);
+		x.push([y[i][0] - timezoneOffset, datapoint]);
 	    }
 	    x.push([x[x.length-1][0], undefined], [endTime - timezoneOffset, undefined]);
 
