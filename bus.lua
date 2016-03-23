@@ -263,6 +263,22 @@ local function add_device_json(res, values)
 	res:add(']')
 end
 
+local function add_json6(res, values)
+  res:add('[')
+
+  local n = #values
+  if n > 0 then
+    for i = 1, n-1 do
+      local point = values[i]
+      res:add('[%s,%s,%s,%s,%s,%s],', point[1], point[2], point[3], point[4], point[5], point[6])
+    end
+    local point = values[n]
+    res:add('[%s,%s,%s,%s,%s,%s]', point[1], point[2], point[3], point[4], point[5], point[6])
+  end
+
+  res:add(']')
+end
+
 local db = {
 	labibus_status = 'SELECT id, active, description, unit, poll_interval ' ..
 		'FROM device_last_active_status ORDER BY id',
@@ -271,7 +287,20 @@ local db = {
 	labibus_data = 'select stamp, value from device_log where id = ? ' ..
 		'order by stamp desc limit ?',
 	labibus_last = 'SELECT stamp, value FROM device_log ' ..
-		'WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000'
+		'WHERE id = ? AND stamp >= ? ORDER BY stamp LIMIT 20000',
+	labibus_range = 'SELECT stamp, value FROM device_log ' ..
+	   'WHERE id = ? AND stamp >= ? AND stamp <= ? ' ..
+	   'ORDER BY stamp LIMIT 100000',
+	labibus_minutely =
+	   'SELECT stamp, events, sum_value, sum_sqvalue, min_value, max_value ' ..
+	   'FROM device_log_minutely ' ..
+	   'WHERE id = ? AND stamp >= ? AND stamp <= ? ' ..
+	   'ORDER BY stamp LIMIT 100000',
+	labibus_hourly =
+	   'SELECT stamp, events, sum_value, sum_sqvalue, min_value, max_value ' ..
+	   'FROM device_log_hourly ' ..
+	   'WHERE id = ? AND stamp >= ? AND stamp <= ? ' ..
+	   'ORDER BY stamp LIMIT 100000'
 }
 
 
@@ -339,6 +368,36 @@ GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
   end
   apiheaders(res.headers)
   add_json(res, assert(runq(db, 'labibus_last', dev, since)))
+end)
+
+OPTIONSM('^/labibus_range/(%d+)/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_range/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
+  if #from > 15 or #to > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json(res, assert(runq(db, 'labibus_range', dev, from, to)))
+end)
+
+OPTIONSM('^/labibus_minutely/(%d+)/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_minutely/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
+  if #from > 15 or #to > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json6(res, assert(runq(db, 'labibus_minutely', dev, from, to)))
+end)
+
+OPTIONSM('^/labibus_hourly/(%d+)/(%d+)/(%d+)$', apioptions)
+GETM('^/labibus_hourly/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
+  if #from > 15 or #to > 15 then
+    httpserv.bad_request(req, res)
+    return
+  end
+  apiheaders(res.headers)
+  add_json6(res, assert(runq(db, 'labibus_hourly', dev, from, to)))
 end)
 
 assert(Hathaway('*', arg[1] or 8081))
