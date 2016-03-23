@@ -14,14 +14,45 @@
     </table>
     <h3 id="deviceheader">Device</h3>
     <div id="graph" style="width:800px;height:400px;"></div>
-    <p><pre id="text">Last data point: </pre></p>
-    <div id="graph_long" style="width:800px;height:400px;"></div>
+    <div>
+      Aggregation: <b><span id="scaletext">minute</span></b>
+      &nbsp;&nbsp;Status: <b><span id="statustext">?</span></b>
+    </div>
+    <div>
+      Range: <b><span id="rangetext">?</span></b>
+    </div>
+    <div>
+      &nbsp;&nbsp;Change to:
+        <a href="#changeminute" onclick="setRange(60);">minute</a>
+        <a href="#changeminute" onclick="setRange(15*60);">15min</a>
+        <a href="#changeminute" onclick="setRange(3600);">hour</a>
+        <a href="#changeminute" onclick="setRange(86400);">day</a>
+        <a href="#changeminute" onclick="setRange(7*86400);">week</a>
+        <a href="#changeminute" onclick="setRange(31*86400);">month</a>
+        <a href="#changeminute" onclick="setRange(Math.round(Math.PI*1e7));">year</a>
+    </div>
+    <p><pre id="lastblip">Last data point: </pre></p>
+    <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
+    <div>Click+drag mouse on graph to pan and zoom.</div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
     /*global jQuery:false, $:false */
     /*jslint whitespace:false, indent:4, onevar:false, browser:true */
+
+    // Normal value.
+    //var urlPref = '';
+    // Useful for debugging.
+    var urlPref = 'https://bus.labitat.dk/';
     var showDevice;
+    var width = 800;
+    var height = 400;
+    var minuteData = [];
+    var hourData = [];
+    var rawData = [];
+    var startTime, endTime;
+    var setRange;
+
     $(function () {
         var options = {
                 lines: { show: true },
@@ -33,87 +64,513 @@
                 },
                 colors: [ 'red' ]
             },
-            data,
-            dataLong,
             graph = $('#graph'),
-            graphLong = $('#graph_long'),
             devicelist = document.getElementById('devicelist'),
             deviceheader = document.getElementById('deviceheader'),
+	    fixbox = document.getElementById("fixbox"),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
             currentDevice, currentDescription, currentUnit,
-            runNumber = 0,
-            preparePoint,
-            updateText,
-            fillGraph,
-            fillGraphLong,
+	    mouse_active = false, mouse_zoom = false, mouse_pan = false,
+	    mouse_activex, mouse_activey, time_origin, time_width,
+            h_mmove, h_mdown, h_mstop, setHandlers,
+	    fixVertical,
+	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
+	    fetching = false, needRedraw = false,
+	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
+	    fetchStatus, callHome, onBlipReceived, onBlipError, processBlip,
+	    handleBlip, markActivity, doReset, noActivity,
             fillDeviceList,
             callHome,
-            onDataReceived,
-            setDeviceHdr;
+            setDeviceHdr,
+	    maxY = 0,
+	    blipQueue = [],
+	    firstBlip = true,
+	    activityTimer = undefined;
+        endTime = (new Date()).getTime();
+        startTime = endTime - 60*20*1000;
+	graph.width(width);
+	graph.height(height);
 
-        preparePoint = function (point) {
-            var stamp = point[0];
+	fixbox.onchange = function() {
+	    fixVertical = fixbox.checked;
+	    scheduleRedraw();
+	};
+	fixVertical = fixbox.checked;
 
-            /* hack to show times in local time */
-            stamp -= timezoneOffset;
+	doReset = function() {
+	    rawData = [];
+	    minuteData = [];
+	    hourData = [];
+	    blipQueue = [];
+	    firstBlip = true;
+	};
 
-            point[0] = stamp;
-        };
+	noActivity = function() {
+	    if (fetching) {
+		markActivity();
+		return;
+	    }
+	    doReset();
+	    markActivity();
+	    checkFetch();
+	};
+	    
+	markActivity = function() {
+	    // If inactive for more than 4 hours, delete all cached data and
+	    // fetch current visible data again. This avoids infinitely growing
+	    // the browser process (with long-polled blips) if left running for
+	    // really long.
+	    var reset_delay = 4*3600e3;
+	    if (activityTimer !== undefined)
+		clearTimeout(activityTimer);
+	    activityTimer = setTimeout(noActivity, reset_delay);
+	};
 
-        updateText = function (stamp, val) {
-            text.textContent = (new Date(stamp)).toString() + ': ' +
-                val + ' ' + currentUnit;
-        }
+	setRange = function(seconds) {
+	    var delta = seconds*1000;
+	    endTime = (new Date()).getTime();
+	    // Try to correct for any time skew with server.
+	    var d = getDataSet();
+	    if (d.length > 0) {
+		var lastData = d[d.length-1].data;
+		if (endTime < lastData[lastData.length-1][0])
+		    endTime = lastData[lastData.length-1][0];
+	    }
+	    startTime = endTime - delta;
+	    markActivity();
+	    checkFetch();
+	    scheduleRedraw();
+	};
 
-        fillGraph = function (values) {
-            updateText(values[0][0], values[0][1]);
-            for (i in values) {
-                preparePoint(values[i]);
-            }
+	h_mmove = function(ev) {
+	    if (mouse_active) {
+		var off = graph.offset();
+		var x = ev.pageX - off.left;
+		var y = ev.pageY - off.top;
+		var dx = x - mouse_activex;
+		var dy = y - mouse_activey;
 
-            data = values;
+		markActivity();
+		if (!mouse_zoom && !mouse_pan) {
+		    var ax = Math.abs(dx);
+		    var ay = Math.abs(dy);
+		    if (ay >= 15 && ax <= ay/2)
+			mouse_zoom = true;
+		    else if (ax >= 15)
+			mouse_pan = true;
+		}
+		if (mouse_zoom) {
+		    var adj = Math.exp(dy/height*2.7);
+		    var newWidth = time_width*adj;
+		    var mid = (startTime+endTime)/2;
+		    startTime = Math.round(mid - newWidth/2);
+		    endTime = Math.round(mid + newWidth/2);
+		    checkFetch();
+		    scheduleRedraw();
+		}
+		if (mouse_pan) {
+		    startTime = Math.round(time_origin - dx/width*time_width);
+		    endTime = Math.round(startTime + time_width);
+		    checkFetch();
+		    scheduleRedraw();
+		}
+	    }
+	};
 
-            $.plot(graph, [ data ], options);
-            callHome();
-        };
+	h_mdown = function(ev) {
+	    var off = graph.offset();
+	    var x = ev.pageX - off.left;
+	    var y = ev.pageY - off.top;
+	    mouse_active = true;
+	    mouse_activex = x;
+	    mouse_activey = y;
+	    time_origin = startTime;
+	    time_width = endTime - startTime;
+	}
+	h_mstop = function(ev) {
+	    mouse_active = false;
+	    mouse_zoom = false;
+	    mouse_pan = false;
+	}
+	setHandlers = function(p, obj) {
+	    obj.mousemove(h_mmove);
+	    obj.mousedown(h_mdown);
+	    obj.mouseup(h_mstop);
+	    obj.mouseleave(h_mstop);
+	}
+	options["hooks"] = { bindEvents: [setHandlers] };
 
-        fillGraphLong = function (values) {
-            for (i in values) {
-                preparePoint(values[i]);
-            }
+	checkFetch = function() {
+	    var i, d;
 
-            dataLong = values;
+	    if (fetching)
+		return;
+	    if (startTime >= endTime) {
+		console.log("Ouch, startTime " + startTime + " >= endTime " + endTime);
+		return;
+	    }
+	    d = getDataSet();
 
-            $.plot(graphLong, [ dataLong ], options);
-        };
+	    // Check for empty existing data.
+	    if (d.length == 0)
+		return startFetch(d, startTime, endTime);
+	    // Check if we are at the very start of already fetched data.
+	    if (startTime < d[0].a)
+		return startFetch(d, startTime, Math.min(endTime, d[0].a));
+	    // Find the first hole that overlaps, if any.
+	    for (i = 0; i < d.length-1; ++i) {
+		var t1 = d[i].b;
+		var t2 = d[i+1].a;
+		if (t1 == t2) {
+		    // No hole here, just not merged chunks.
+		    continue;
+		}
+		if (t1 > t2) {
+		    // Just a sanity check.
+		    console.log("Ouch, out-of-order @ " + i + ": " + t1 + " > " + t2);
+		    return;
+		}
+		if (endTime <= t1) {
+		    // This hole is beyond our interval, so we are done.
+		    return;
+		}
+		if (t2 <= startTime) {
+		    // This hole is too early, continue looking.
+		    continue;
+		}
+		// This hole overlaps, so fetch the relevant part of it.
+		return startFetch(d, Math.max(startTime, t1), Math.min(endTime, t2));
+	    }
+	    // Check if we need to fetch at the end of current data.
+	    if (d[d.length-1].b < endTime)
+		return startFetch(d, Math.max(startTime, d[d.length-1].b), endTime);
+	};
 
-        callHome = function() {
-            var cb = onDataReceived(runNumber);
+	fetchStatus = function(status) {
+	    fetching = status;
+	    document.getElementById("statustext").textContent =
+		(status ? "loading..." : "ready");
+	    if (!status) {
+		var i;
+		for (i = 0; i < blipQueue.length; ++i)
+		    handleBlip(blipQueue[i]);
+		blipQueue = [];
+	    }
+	}
+
+	startFetch = function(d, a, b) {
+	    var geturl;
+
+	    fetchStatus(true);
+	    if (d == hourData)
+		geturl = 'labibus_hourly/';
+	    else if (d == minuteData)
+		geturl = 'labibus_minutely/';
+	    else
+		geturl = 'labibus_range/';
+	    var thisDevice = currentDevice;
+	    $.ajax({
+		url: urlPref + geturl + currentDevice + "/" +
+		    a.toString() + '/' + b.toString(),
+		method: 'GET',
+		dataType: 'json',
+		success: function(values) { dataGot(thisDevice, d, a, b, values); },
+		error: function() { fetchStatus(false); }
+	    });
+	}
+
+	dataGot = function(wasDevice, d, a, b, values) {
+	    if (wasDevice != currentDevice)
+		return;
+	    mergeData(d, a, b, values);
+	    fetchStatus(false);
+
+	    // Schedule a new fetch if anything more needed.
+	    setTimeout(function () { checkFetch(); }, 0);
+
+	    // Schedule a redraw with the newly available data.
+	    scheduleRedraw();
+	};
+
+	tryMergeChunks = function(d, i) {
+	    var c1 = d[i];
+	    var c2 = d[i+1];
+	    if (c1.b != c2.a)
+		return;
+	    var data1 = c1.data;
+	    var data2 = c2.data;
+	    if ((data1.length > 2000 && data2.length > 0) ||
+		(data2.length > 2000 && data1.length > 0)) {
+		// Let's not merge to avoid a too large chunk.
+		return;
+	    }
+	    // Merge d[i] with d[i+1].
+	    c1.b = c2.b;
+	    var j;
+	    for (j = 0; j < data2.length; ++j) {
+		if (data1.length > 0 && data2[j][0] == data1[data1.length-1][0])
+		    continue;
+		data1.push(data2[j]);
+	    }
+	    d.splice(i+1, 1);
+	};
+
+	mergeData = function(d, a, b, values) {
+	    var i, j;
+
+	    if (d == rawData) {
+		// Convert the millisecond blip duration to watt-usage
+		for (j = 0; j < values.length; ++j)
+		{
+		    values[j][2] = values[j][1];
+		}
+	    } else {
+		// Compute the average value
+		for (j = 0; j < values.length; ++j)
+		{
+		    values[j][2] = values[j][2] / values[j][1];
+		}
+	    }
+
+	    // Find the right spot to insert the new chunk.
+	    for (i = 0; i < d.length; ++i) {
+		if (d[i].a >= b)
+		    break;
+	    }
+	    var data = [ ];
+	    for (j = 0; j < values.length; ++j) {
+		data.push([values[j][0], values[j][2]]);
+		if (values[j][2] > maxY)
+		    maxY = values[j][2];
+	    }
+	    d.splice(i, 0, {a: a, b: b, data: data});
+
+	    // Check if we should merge with the following chunk, and/or the prior.
+	    if (i < d.length-1)
+		tryMergeChunks(d, i);
+	    if (i > 0)
+		tryMergeChunks(d, i-1);
+	};
+
+	getScale = function() {
+	    var delta = endTime - startTime;
+	    if (delta / 3600e3 > width/4)
+		return 2;
+	    else if (delta / 60e3 > width/4)
+		return 1;
+	    else
+		return 0;
+	}
+
+	getDataSet = function() {
+	    var scale = getScale();
+	    if (scale == 2)
+		return hourData;
+	    else if (scale == 1)
+		return minuteData;
+	    else
+		return rawData;
+	}
+
+	scheduleRedraw = function () {
+	    needRedraw = true;
+	    setTimeout(function() {
+		if (needRedraw) { doRedraw(); needRedraw = false; }
+	    }, 0);
+	};
+
+	chooseBinSize = function(bins, delta) {
+	    var binsizes = [1, 2, 5, 10, 15, 30,
+			    60, 60*2, 60*5, 60*10, 60*15, 60*30, 60*60].
+		map(function(x) { return x*1000; });
+	    var i;
+
+	    for (i = 0; i < binsizes.length; ++i) {
+		if ((delta / binsizes[i]) <= bins)
+		    break;
+	    }
+	    var binsize;
+	    if (i == 0) {
+		binsize = binsizes[i];
+		while (2*delta/binsize <= bins && binsize > 1e-6) {
+		    binsize /= 2;
+		}
+	    }
+	    else if (i >= binsizes.length) {
+		binsize = binsizes[binsizes.length-1];
+		while (delta/binsize > bins)
+		    binsize *= 2;
+	    }
+	    else
+		binsize = binsizes[i];
+	    return binsize;
+	};
+
+	doRedraw = function() {
+	    var bin = 1000;
+	    var i, j;
+	    var z = [];
+	    var y = [];
+	    var x = [[startTime - timezoneOffset, undefined]];
+	    var d = getDataSet();
+	    var lastbin;
+
+	    document.getElementById("scaletext").textContent =
+		(d == hourData ? "hour" : (d == minuteData ? "minute" : "none"));
+	    var startDate = new Date(startTime);
+	    var endDate = new Date(endTime);
+	    document.getElementById("rangetext").textContent =
+		startDate.toLocaleString() + " to " + endDate.toLocaleString();
+
+	    for (i = 0; i < d.length; ++i) {
+		if (d[i].a > endTime)
+		    break;
+		if (d[i].b < startTime)
+		    continue;
+		var data = d[i].data;
+		for (j = 0; j < data.length; ++j) {
+		    if (data[j][0] >= startTime && data[j][0] <= endTime) {
+			z.push([data[j][0], data[j][1]]);
+		    }
+		}
+	    }
+	    if (z.length <= bin) {
+		for (i = 0; i < z.length; ++i) {
+		    y.push([z[i][0], z[i][1], 1]);
+		}
+	    } else {
+		var binsize = chooseBinSize(bin, endTime - startTime);
+		if (z.length > 0) {
+		    lastbin = Math.floor(z[0][0]/binsize)*binsize;
+		    y.push([lastbin, z[0][1], 1]);
+		}
+		for (i = 1; i < z.length; ++i) {
+		    var newbin = Math.floor(z[i][0]/binsize)*binsize;
+		    if (newbin == lastbin) {
+			y[y.length-1][1] += z[i][1];
+			++y[y.length-1][2];
+		    } else {
+			y.push([newbin, z[i][1], 1]);
+			lastbin = newbin;
+		    }
+		}
+	    }
+	    for (i = 0; i < y.length; ++i) {
+		var datapoint = y[i][1]/y[i][2];
+		if (x[x.length-1][1] !== undefined)
+		    x.push([x[x.length-1][0], datapoint]);
+		x.push([y[i][0] - timezoneOffset, datapoint]);
+	    }
+	    x.push([x[x.length-1][0], undefined], [endTime - timezoneOffset, undefined]);
+
+	    if (fixVertical)
+		options.yaxis.max = maxY*1.10;
+	    else
+		options.yaxis.max = undefined;
+	    $.plot(graph, [ x ], options);
+	};
+
+        callHome = function () {
+	    var thisDevice = currentDevice;
             $.ajax({
-                url: '/labibus_blip/' + currentDevice,
+                url: urlPref + 'labibus_blip/' + currentDevice,
                 method: 'GET',
                 dataType: 'json',
-                success: cb
+                success: function(point) { onBlipReceived(thisDevice, point); },
+                error: onBlipError
             });
         };
 
-        onDataReceived = function(num) { return function (point) {
-            if (num != runNumber) { return null; }
+	onBlipError = function() {
+            setTimeout(callHome, 20000);
+        };
 
-            var stamp = point[0], val = point[1];
-            updateText(stamp, val);
+	onBlipReceived = function(wasDevice, point) {
+	    if (wasDevice != currentDevice) {
+		callHome();
+		return;
+	    }
+	    var time = new Date(point[0]);
+	    var value = point[1];
+	    document.getElementById("lastblip").textContent =
+		time.toString() + ': ' + point[1] + ' ' + currentUnit;
+	    if (fetching) {
+		// Just put the blip in queue, to avoid racing against the
+		// fetch. The blip will be handled once the fetch is complete.
+		blipQueue.push(point);
+	    } else {
+		handleBlip(point);
+	    }
+	}
 
-            preparePoint(point);
-            data.push(point);
+	handleBlip = function(point) {
+            var stamp = point[0],
+                value = point[1],
+                time = new Date(stamp);
+	    var d = rawData;
+	    if (d.length > 0) {
+		var lastData = d[d.length-1].data;
+		if (lastData.length > 0 && stamp <= lastData[lastData.length-1][0]) {
+		    // We somehow already have a newer point, so ignore this blip.
+		    return processBlip(false, stamp);
+		}
+		if (lastData.b >= stamp) {
+		    // This blip fits in the last chunk.
+		    lastData.push([stamp, value]);
+		    return processBlip(true, stamp);
+		}
+		if (!firstBlip ||
+		    (lastData.length > 0 && stamp-2 <= lastData[lastData.length-1][0])) {
+		    // Already have prior blips, so can put another one.
+		    // The check against (stamp-2) avoids an out-of-order merge
+		    // when falling through, and still guards against adding a
+		    // blip that will prevent prior blips from ever being
+		    // fetched.
+		    lastData.push([stamp, value]);
+		    if (d[d.length-1].b < stamp)
+			d[d.length-1].b = stamp;
+		    return processBlip(true, stamp);
+		}
+	    }
 
-            stamp = point[0] - 3600000; /* one hour */
-            while (data[0][0] < stamp) {
-               data.shift();
-            }
+	    mergeData(d, stamp-2, stamp, [stamp, value]);
+	    return processBlip(true, stamp);
+	};
 
-            $.plot(graph, [ data ], options);
-            callHome();
-        } }
+	processBlip = function(doBlip, stamp) {
+	    // Check if we should scroll the graph to show the new blip.
+	    var doScroll = false;
+	    var doRedraw = false;
+	    if (!doBlip) {
+		// Ignore this blip.
+	    } else if (getScale() != 0) {
+		// New blips only visible when no DB aggregation.
+	    } else if (startTime <= stamp && stamp <= endTime) {
+		// Already visible, just redraw.
+		doRedraw = true;
+	    } else if (rawData.length == 0) {
+		// Probably impossible, but just in case...
+	    } else if (stamp < startTime) {
+		// We are somehow ahead of the new blip, no scroll.
+	    } else if (stamp < endTime + 0.25*(endTime - startTime)) {
+		// Blip is a bit ahead, let's scroll to make it visible.
+		doScroll = true;
+		doRedraw = true;
+	    }
+
+	    if (doScroll) {
+		var newEnd = stamp;
+		startTime += newEnd - endTime;
+		endTime = newEnd;
+		checkFetch();
+	    }
+	    if (doRedraw)
+		scheduleRedraw();
+
+	    if (doBlip)
+		firstBlip = false;
+	    callHome();
+	}
 
         setDeviceHdr = function (status) {
             currentDevice = status[0][0];
@@ -125,25 +582,15 @@
                 return val.toFixed(axis.tickDecimals) + " " + currentUnit;
             }
 
-            $.ajax({
-                url: 'labibus_last/' + currentDevice + '/3600000',
-                method: 'GET',
-                dataType: 'json',
-                success: fillGraph
-            });
-
-            $.ajax({
-                url: 'labibus_last/' + currentDevice + '/86400000',
-                method: 'GET',
-                dataType: 'json',
-                success: fillGraphLong
-            });
+	    doReset();
+	    checkFetch();
+	    callHome();
+	    markActivity();
         }
 
         showDevice = function (dev) {
-            runNumber++;
             $.ajax({
-                url: '/labibus_status/' + dev,
+                url: urlPref + 'labibus_status/' + dev,
                 method: 'GET',
                 dataType: 'json',
                 success: setDeviceHdr
@@ -171,7 +618,7 @@
         };
 
         $.ajax({
-            url: '/labibus_status',
+            url: urlPref + 'labibus_status',
             method: 'GET',
             dataType: 'json',
             success: fillDeviceList
