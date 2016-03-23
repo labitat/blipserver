@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+    <title>Blip Server</title>
+    <!--[if IE]><script type="text/javascript" src="excanvas.js"></script><![endif]-->
+  </head>
+  <body>
+    <div id="graph" style="width:800px;height:400px;"></div>
+    <h3>Last update:</h3>
+    <p><pre id="text"><a href="http://browsehappy.com/">http://browsehappy.com/</a></pre></p>
+    <p><a href="oldblips.html">Interactive graph with old data</a></p>
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="jquery.flot.js"></script>
+    <script type="text/javascript">
+    /*global jQuery:false, $:false */
+    /*jslint whitespace:false, indent:4, onevar:false, browser:true */
+    $(function () {
+        var options = {
+                lines: { show: true },
+                xaxis: { mode: 'time' },
+                yaxis: {
+                    min: 0,
+                    tickFormatter: function (val, axis) {
+                        return val.toFixed(axis.tickDecimals) + 'W';
+                    }
+                },
+                colors: [ 'red' ]
+            },
+            data,
+            graph = $('#graph'),
+            text = document.getElementById('text'),
+            timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
+            preparePoint,
+            fillGraph,
+            callHome,
+            initReq,
+            pollError,
+            initError,
+            onDataReceived;
+
+        preparePoint = function (point) {
+            var stamp = point[0],
+                ms = point[1];
+
+            stamp -= ms / 2;
+
+            /* hack to show times in local time */
+            stamp -= timezoneOffset;
+
+            point[0] = stamp;
+            point[1] = 3600000 / ms;
+        };
+
+        fillGraph = function (values) {
+            for (i in values) {
+                preparePoint(values[i]);
+            }
+
+            data = values;
+
+            $.plot(graph, [ data ], options);
+            callHome();
+        };
+
+        callHome = function () {
+            $.ajax({
+                url: '/blip',
+                method: 'GET',
+                dataType: 'json',
+                success: onDataReceived,
+                error: pollError
+            });
+        };
+
+        pollError = function() {
+            setTimeout(callHome, 20000);
+        };
+
+        initReq = function() {
+            $.ajax({
+                url: '/last/1200000', /* last 20min */
+                method: 'GET',
+                dataType: 'json',
+                success: fillGraph,
+                error: initError
+            });
+        };
+
+        initError = function() {
+            setTimeout(initReq, 20000);
+        };
+
+        onDataReceived = function (point) {
+            var stamp = point[0],
+                ms = point[1],
+                time = new Date(stamp);
+
+            preparePoint(point);
+            data.push(point);
+
+            stamp = point[0] - 1200000; /* 20min */
+            while (data[0][0] < stamp) {
+                data.shift();
+            }
+
+            text.textContent = time.toString() + ' - ' + ms + 'ms -> ' + point[1].toFixed(0) + 'W';
+            $.plot(graph, [ data ], options);
+            callHome();
+        };
+
+        initReq();
+    });
+    </script>
+    <a href="https://github.com/labitat/blipserver"><img style="position: absolute; top: 0; right: 0; border: 0;" src="ribbon.png" alt="Fork me on GitHub"></a>
+  </body>
+<!-- vim: ts=4 sw=4 et:
+-->
+</html>
