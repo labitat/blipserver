@@ -134,7 +134,7 @@ local function sendfile(content, path)
 end
 
 local index_html = sendfile('text/html; charset=UTF-8', 'index.html')
-local oldblips_html = sendfile('text/html; charset=UTF-8', 'oldblips.html')
+local oldindex_html = sendfile('text/html; charset=UTF-8', 'oldindex.html')
 local labibus_html = sendfile('text/html; charset=UTF-8', 'power_labibus.html')
 local lastweek_html = sendfile('text/html; charset=UTF-8', 'lastweek.html')
 local lastmonth_html = sendfile('text/html; charset=UTF-8', 'lastmonth.html')
@@ -145,7 +145,8 @@ hathaway.import()
 
 GET('/',               index_html)
 GET('/index.html',     index_html)
-GET('/oldblips.html',  oldblips_html)
+GET('/oldblips.html',  index_html)
+GET('/oldindex.html',  oldindex_html)
 GET('/labibus',        labibus_html)
 GET('/labibus.html',   labibus_html)
 GET('/lastweek.html',  lastweek_html)
