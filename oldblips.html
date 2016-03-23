@@ -69,10 +69,11 @@
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
 	    fetchStatus, callHome, onBlipReceived, onBlipError, processBlip,
-	    handleBlip,
+	    handleBlip, markActivity, noActivity,
 	    maxY = 0,
 	    blipQueue = [],
-	    firstBlip = true;
+	    firstBlip = true,
+	    activityTimer = undefined;
         endTime = (new Date()).getTime();
         startTime = endTime - 60*20*1000;
 	graph.width(width);
@@ -83,6 +84,31 @@
 	    scheduleRedraw();
 	};
 	fixVertical = fixbox.checked;
+
+	noActivity = function() {
+	    if (fetching) {
+		markActivity();
+		return;
+	    }
+	    rawData = [];
+	    minuteData = [];
+	    hourData = [];
+	    blipQueue = [];
+	    firstBlip = true;
+	    markActivity();
+	    checkFetch();
+	};
+	    
+	markActivity = function() {
+	    // If inactive for more than 4 hours, delete all cached data and
+	    // fetch current visible data again. This avoids infinitely growing
+	    // the browser process (with long-polled blips) if left running for
+	    // really long.
+	    var reset_delay = 4*3600e3;
+	    if (activityTimer !== undefined)
+		clearTimeout(activityTimer);
+	    activityTimer = setTimeout(noActivity, reset_delay);
+	};
 
 	setRange = function(seconds) {
 	    var delta = seconds*1000;
@@ -95,17 +121,20 @@
 		    endTime = lastData[lastData.length-1][0];
 	    }
 	    startTime = endTime - delta;
+	    markActivity();
 	    checkFetch();
 	    scheduleRedraw();
 	};
 
 	h_mmove = function(ev) {
-	    var off = graph.offset();
-	    var x = ev.pageX - off.left;
-	    var y = ev.pageY - off.top;
 	    if (mouse_active) {
+		var off = graph.offset();
+		var x = ev.pageX - off.left;
+		var y = ev.pageY - off.top;
 		var dx = x - mouse_activex;
 		var dy = y - mouse_activey;
+
+		markActivity();
 		if (!mouse_zoom && !mouse_pan) {
 		    var ax = Math.abs(dx);
 		    var ay = Math.abs(dy);
@@ -459,8 +488,13 @@
 		    lastData.push([stamp, value]);
 		    return processBlip(true, stamp);
 		}
-		if (!firstBlip) {
+		if (!firstBlip ||
+		    (lastData.length > 0 && stamp-ms <= lastData[lastData.length-1][0])) {
 		    // Already have prior blips, so can put another one.
+		    // The check against (stamp-ms) avoids an out-of-order merge
+		    // when falling through, and still guards against adding a
+		    // blip that will prevent prior blips from ever being
+		    // fetched.
 		    lastData.push([stamp, value]);
 		    if (d[d.length-1].b < stamp)
 			d[d.length-1].b = stamp;
@@ -509,6 +543,7 @@
 
 	checkFetch();
 	callHome();
+	markActivity();
     });
     </script>
     <a href="https://github.com/labitat/blipserver"><img style="position: absolute; top: 0; right: 0; border: 0;" src="ribbon.png" alt="Fork me on GitHub"></a>
