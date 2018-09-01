@@ -23,13 +23,13 @@
     </div>
     <div>
       &nbsp;&nbsp;Change to:
-        <a href="#changeminute" onclick="setRange(60);">minute</a>
-        <a href="#changeminute" onclick="setRange(15*60);">15min</a>
-        <a href="#changeminute" onclick="setRange(3600);">hour</a>
-        <a href="#changeminute" onclick="setRange(86400);">day</a>
-        <a href="#changeminute" onclick="setRange(7*86400);">week</a>
-        <a href="#changeminute" onclick="setRange(31*86400);">month</a>
-        <a href="#changeminute" onclick="setRange(Math.round(Math.PI*1e7));">year</a>
+        <a href="#changeminute" onclick="setRange(60);"><b>minute</b></a>
+        <a href="#change15minute" onclick="setRange(15*60);"><b>15min</b></a>
+        <a href="#changehour" onclick="setRange(3600);"><b>hour</b></a>
+        <a href="#changeday" onclick="setRange(86400);"><b>day</b></a>
+        <a href="#changeweek" onclick="setRange(7*86400);"><b>week</b></a>
+        <a href="#changemonth" onclick="setRange(31*86400);"><b>month</b></a>
+        <a href="#changeyear" onclick="setRange(Math.round(Math.PI*1e7));"><b>year</b></a>
     </div>
     <p><pre id="lastblip">Last data point: </pre></p>
     <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
@@ -87,7 +87,22 @@
 	    firstBlip = true,
 	    activityTimer = undefined;
         endTime = (new Date()).getTime();
-        startTime = endTime - 60*20*1000;
+	if (location.hash == "#changeminute")
+            startTime = endTime - 60*1000;
+	else if (location.hash == "#change15minute")
+            startTime = endTime - 15*60*1000;
+	else if (location.hash == "#changehour")
+            startTime = endTime - 3600*1000;
+	else if (location.hash == "#changeday")
+            startTime = endTime - 86400*1000;
+	else if (location.hash == "#changeweek")
+            startTime = endTime - 7*86400*1000;
+	else if (location.hash == "#changemonth")
+            startTime = endTime - 31*86400*1000;
+	else if (location.hash == "#changeyear")
+            startTime = endTime - Math.round(Math.PI*1e7)*1000;
+	else
+            startTime = endTime - 60*20*1000;
 	graph.width(width);
 	graph.height(height);
 
