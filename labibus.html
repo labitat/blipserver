@@ -23,13 +23,13 @@
     </div>
     <div>
       &nbsp;&nbsp;Change to:
-        <a href="#changeminute" onclick="setRange(60);"><b>minute</b></a>
-        <a href="#change15minute" onclick="setRange(15*60);"><b>15min</b></a>
-        <a href="#changehour" onclick="setRange(3600);"><b>hour</b></a>
-        <a href="#changeday" onclick="setRange(86400);"><b>day</b></a>
-        <a href="#changeweek" onclick="setRange(7*86400);"><b>week</b></a>
-        <a href="#changemonth" onclick="setRange(31*86400);"><b>month</b></a>
-        <a href="#changeyear" onclick="setRange(Math.round(Math.PI*1e7));"><b>year</b></a>
+        <a href="#changeminute" onclick="setRange(event, 60);"><b>minute</b></a>
+        <a href="#change15minute" onclick="setRange(event, 15*60);"><b>15min</b></a>
+        <a href="#changehour" onclick="setRange(event, 3600);"><b>hour</b></a>
+        <a href="#changeday" onclick="setRange(event, 86400);"><b>day</b></a>
+        <a href="#changeweek" onclick="setRange(event, 7*86400);"><b>week</b></a>
+        <a href="#changemonth" onclick="setRange(event, 31*86400);"><b>month</b></a>
+        <a href="#changeyear" onclick="setRange(event, Math.round(Math.PI*1e7));"><b>year</b></a>
     </div>
     <p><pre id="lastblip">Last data point: </pre></p>
     <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
@@ -85,21 +85,32 @@
 	    maxY = 0,
 	    blipQueue = [],
 	    firstBlip = true,
-	    activityTimer = undefined;
+	    activityTimer = undefined,
+	    initialDevicePending = false,
+	    initialDeviceCode,
+	    urlHash,
+	    idx;
         endTime = (new Date()).getTime();
-	if (location.hash == "#changeminute")
+	urlHash = location.hash;
+	idx = urlHash.search(":[0-9]+$");
+	if (idx >= 0) {
+	    initialDeviceCode = urlHash.substr(idx+1);
+	    initialDevicePending = true;
+	    urlHash = urlHash.substr(0, idx);
+	}
+	if (urlHash == "#changeminute")
             startTime = endTime - 60*1000;
-	else if (location.hash == "#change15minute")
+	else if (urlHash == "#change15minute")
             startTime = endTime - 15*60*1000;
-	else if (location.hash == "#changehour")
+	else if (urlHash == "#changehour")
             startTime = endTime - 3600*1000;
-	else if (location.hash == "#changeday")
+	else if (urlHash == "#changeday")
             startTime = endTime - 86400*1000;
-	else if (location.hash == "#changeweek")
+	else if (urlHash == "#changeweek")
             startTime = endTime - 7*86400*1000;
-	else if (location.hash == "#changemonth")
+	else if (urlHash == "#changemonth")
             startTime = endTime - 31*86400*1000;
-	else if (location.hash == "#changeyear")
+	else if (urlHash == "#changeyear")
             startTime = endTime - Math.round(Math.PI*1e7)*1000;
 	else
             startTime = endTime - 60*20*1000;
@@ -141,7 +152,7 @@
 	    activityTimer = setTimeout(noActivity, reset_delay);
 	};
 
-	setRange = function(seconds) {
+	setRange = function(event, seconds) {
 	    var delta = seconds*1000;
 	    endTime = (new Date()).getTime();
 	    // Try to correct for any time skew with server.
@@ -152,9 +163,27 @@
 		    endTime = lastData[lastData.length-1][0];
 	    }
 	    startTime = endTime - delta;
+	    if (seconds == 60)
+		location.hash = "#changeminute:" + currentDevice;
+	    else if (seconds == 15*60)
+		location.hash = "#change15minute:" + currentDevice;
+	    else if (seconds == 3600)
+		location.hash = "#changehour:" + currentDevice;
+	    else if (seconds == 86400)
+		location.hash = "#changeday:" + currentDevice;
+	    else if (seconds == 7*86400)
+		location.hash = "#changeweek:" + currentDevice;
+	    else if (seconds == 31*86400)
+		location.hash = "#changemonth:" + currentDevice;
+	    else if (seconds == Math.round(Math.PI*1e7))
+		location.hash = "#changeyear:" + currentDevice;
+	    else
+		location.hash = "#:" + currentDevice;
 	    markActivity();
 	    checkFetch();
 	    scheduleRedraw();
+	    event.preventDefault();
+	    return false;
 	};
 
 	h_mmove = function(ev) {
@@ -604,6 +633,7 @@
         }
 
         showDevice = function (dev) {
+	    location.hash = "#:" + dev;
             $.ajax({
                 url: urlPref + 'labibus_status/' + dev,
                 method: 'GET',
@@ -630,6 +660,10 @@
                     row.insertCell(3).innerHTML= '&nbsp;';
                 }
             }
+	    if (initialDevicePending) {
+		initialDevicePending = false;
+		showDevice(initialDeviceCode);
+	    }
         };
 
         $.ajax({
