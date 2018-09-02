@@ -89,6 +89,11 @@
 	    initialDevicePending = false,
 	    initialDeviceCode,
 	    urlHash,
+	    updateUrl = false,
+	    doUpdateUrl,
+	    useSymbolicTimeRange = false,
+	    symbolicTimeRange,
+	    matched,
 	    idx;
         endTime = (new Date()).getTime();
 	urlHash = location.hash;
@@ -98,6 +103,8 @@
 	    initialDevicePending = true;
 	    urlHash = urlHash.substr(0, idx);
 	}
+	useSymbolicTimeRange = true;
+	symbolicTimeRange = urlHash.substr(1);
 	if (urlHash == "#changeminute")
             startTime = endTime - 60*1000;
 	else if (urlHash == "#change15minute")
@@ -112,8 +119,14 @@
             startTime = endTime - 31*86400*1000;
 	else if (urlHash == "#changeyear")
             startTime = endTime - Math.round(Math.PI*1e7)*1000;
-	else
+	else if ((matched = urlHash.match(/^#([0-9]+)-([0-9]+)/))) {
+	    useSymbolicTimeRange = false;
+	    startTime = parseInt(matched[1]);
+	    endTime = parseInt(matched[2]);
+	} else {
+	    symbolicTimeRange = "";
             startTime = endTime - 60*20*1000;
+	}
 	graph.width(width);
 	graph.height(height);
 
@@ -152,6 +165,16 @@
 	    activityTimer = setTimeout(noActivity, reset_delay);
 	};
 
+	doUpdateUrl = function() {
+	    if (currentDevice === undefined)
+		return;
+	    if (useSymbolicTimeRange)
+		location.hash = "#" + symbolicTimeRange + ":" + currentDevice;
+	    else
+		location.hash = "#" + startTime + "-" + endTime + ":" + currentDevice;
+	};
+
+
 	setRange = function(event, seconds) {
 	    var delta = seconds*1000;
 	    endTime = (new Date()).getTime();
@@ -164,21 +187,23 @@
 	    }
 	    startTime = endTime - delta;
 	    if (seconds == 60)
-		location.hash = "#changeminute:" + currentDevice;
+		symbolicTimeRange = "changeminute";
 	    else if (seconds == 15*60)
-		location.hash = "#change15minute:" + currentDevice;
+		symbolicTimeRange = "change15minute";
 	    else if (seconds == 3600)
-		location.hash = "#changehour:" + currentDevice;
+		symbolicTimeRange = "changehour";
 	    else if (seconds == 86400)
-		location.hash = "#changeday:" + currentDevice;
+		symbolicTimeRange = "changeday";
 	    else if (seconds == 7*86400)
-		location.hash = "#changeweek:" + currentDevice;
+		symbolicTimeRange = "changeweek";
 	    else if (seconds == 31*86400)
-		location.hash = "#changemonth:" + currentDevice;
+		symbolicTimeRange = "changemonth";
 	    else if (seconds == Math.round(Math.PI*1e7))
-		location.hash = "#changeyear:" + currentDevice;
+		symbolicTimeRange = "changeyear";
 	    else
-		location.hash = "#:" + currentDevice;
+		symbolicTimeRange = "";
+	    useSymbolicTimeRange = true;
+	    doUpdateUrl();
 	    markActivity();
 	    checkFetch();
 	    scheduleRedraw();
@@ -210,12 +235,16 @@
 		    startTime = Math.round(mid - newWidth/2);
 		    endTime = Math.round(mid + newWidth/2);
 		    checkFetch();
+		    useSymbolicTimeRange = false;
+		    updateUrl = true;
 		    scheduleRedraw();
 		}
 		if (mouse_pan) {
 		    startTime = Math.round(time_origin - dx/width*time_width);
 		    endTime = Math.round(startTime + time_width);
 		    checkFetch();
+		    useSymbolicTimeRange = false;
+		    updateUrl = true;
 		    scheduleRedraw();
 		}
 	    }
@@ -512,6 +541,10 @@
 	    else
 		options.yaxis.max = undefined;
 	    $.plot(graph, [ x ], options);
+	    if (updateUrl) {
+		doUpdateUrl();
+		updateUrl = false;
+	    }
 	};
 
         callHome = function () {
@@ -626,6 +659,7 @@
                 return val.toFixed(axis.tickDecimals) + " " + currentUnit;
             }
 
+	    doUpdateUrl();
 	    doReset();
 	    checkFetch();
 	    callHome();
@@ -633,7 +667,6 @@
         }
 
         showDevice = function (dev) {
-	    location.hash = "#:" + dev;
             $.ajax({
                 url: urlPref + 'labibus_status/' + dev,
                 method: 'GET',
