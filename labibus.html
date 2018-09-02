@@ -36,6 +36,7 @@
       </div>
       <p><pre id="lastblip">Last data point: </pre></p>
       <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
+      <div><input id="hidebox" type="checkbox" checked>Hide inactive devices</div>
       <div>Click+drag mouse on graph to pan and zoom.</div>
     </div>
     <script type="text/javascript" src="jquery.js"></script>
@@ -72,18 +73,22 @@
             devicelist = document.getElementById('devicelist'),
             deviceheader = document.getElementById('deviceheader'),
 	    fixbox = document.getElementById("fixbox"),
+	    hidebox = document.getElementById("hidebox"),
             timezoneOffset = (new Date()).getTimezoneOffset() * 60000,
             currentDevice, currentDescription, currentUnit,
 	    mouse_active = false, mouse_zoom = false, mouse_pan = false,
 	    mouse_activex, mouse_activey, time_origin, time_width,
             h_mmove, h_mdown, h_mstop, setHandlers,
 	    fixVertical,
+	    hideInactive,
 	    checkFetch, startFetch, dataGot, mergeData, tryMergeChunks,
 	    fetching = false, needRedraw = false,
 	    getScale, getDataSet, scheduleRedraw, doRedraw, chooseBinSize,
 	    fetchStatus, callHome, onBlipReceived, onBlipError, processBlip,
 	    handleBlip, markActivity, doReset, noActivity,
             fillDeviceList,
+	    updateDeviceTable,
+	    currentDeviceList,
             callHome,
             setDeviceHdr,
 	    maxY = 0,
@@ -139,6 +144,11 @@
 	    scheduleRedraw();
 	};
 	fixVertical = fixbox.checked;
+	hidebox.onchange = function() {
+	    hideInactive = hidebox.checked;
+	    updateDeviceTable(currentDeviceList);
+	};
+	hideInactive = hidebox.checked;
 
 	doReset = function() {
 	    rawData = [];
@@ -679,9 +689,14 @@
             });
         };
 
-        fillDeviceList = function (values) {
+	updateDeviceTable = function(values) {
             var row_idx = 1;
+	    while (devicelist.rows.length > 1) {
+		devicelist.deleteRow(1);
+	    }
             for (i in values) {
+		if (hideInactive && values[i][1] != 1)
+		    continue;
                 var row = devicelist.insertRow(row_idx);
                 ++row_idx;
                 row.insertCell(0).innerHTML = values[i][0];
@@ -697,6 +712,11 @@
                     row.insertCell(3).innerHTML= '&nbsp;';
                 }
             }
+	};
+
+        fillDeviceList = function (values) {
+	    currentDeviceList = values;
+	    updateDeviceTable(currentDeviceList);
 	    if (initialDevicePending) {
 		initialDevicePending = false;
 		showDevice(initialDeviceCode);
