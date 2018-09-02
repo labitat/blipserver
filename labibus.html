@@ -9,31 +9,35 @@
   </head>
   <body>
     <h1>Labibus</h1>
-    <table border=1 id="devicelist">
-      <tr><th>id</th><th>active?</th><th>Description</th><th>&nbsp;</th></tr>
-    </table>
-    <h3 id="deviceheader">Device</h3>
-    <div id="graph" style="width:800px;height:400px;"></div>
-    <div>
-      Aggregation: <b><span id="scaletext">minute</span></b>
-      &nbsp;&nbsp;Status: <b><span id="statustext">?</span></b>
+    <div style="display: block; float: left; margin-right: 2em">
+      <table border=1 id="devicelist">
+	<tr><th>id</th><th>active?</th><th>Description</th><th>&nbsp;</th></tr>
+      </table>
     </div>
-    <div>
-      Range: <b><span id="rangetext">?</span></b>
+    <div style="display: block; float: left">
+      <h3 id="deviceheader">Device</h3>
+      <div id="graph" style="width:800px;height:400px;"></div>
+      <div>
+	Aggregation: <b><span id="scaletext">minute</span></b>
+	&nbsp;&nbsp;Status: <b><span id="statustext">?</span></b>
+      </div>
+      <div>
+	Range: <b><span id="rangetext">?</span></b>
+      </div>
+      <div>
+	&nbsp;&nbsp;Change to:
+	  <a href="#changeminute" onclick="setRange(event, 60);"><b>minute</b></a>
+	  <a href="#change15minute" onclick="setRange(event, 15*60);"><b>15min</b></a>
+	  <a href="#changehour" onclick="setRange(event, 3600);"><b>hour</b></a>
+	  <a href="#changeday" onclick="setRange(event, 86400);"><b>day</b></a>
+	  <a href="#changeweek" onclick="setRange(event, 7*86400);"><b>week</b></a>
+	  <a href="#changemonth" onclick="setRange(event, 31*86400);"><b>month</b></a>
+	  <a href="#changeyear" onclick="setRange(event, Math.round(Math.PI*1e7));"><b>year</b></a>
+      </div>
+      <p><pre id="lastblip">Last data point: </pre></p>
+      <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
+      <div>Click+drag mouse on graph to pan and zoom.</div>
     </div>
-    <div>
-      &nbsp;&nbsp;Change to:
-        <a href="#changeminute" onclick="setRange(event, 60);"><b>minute</b></a>
-        <a href="#change15minute" onclick="setRange(event, 15*60);"><b>15min</b></a>
-        <a href="#changehour" onclick="setRange(event, 3600);"><b>hour</b></a>
-        <a href="#changeday" onclick="setRange(event, 86400);"><b>day</b></a>
-        <a href="#changeweek" onclick="setRange(event, 7*86400);"><b>week</b></a>
-        <a href="#changemonth" onclick="setRange(event, 31*86400);"><b>month</b></a>
-        <a href="#changeyear" onclick="setRange(event, Math.round(Math.PI*1e7));"><b>year</b></a>
-    </div>
-    <p><pre id="lastblip">Last data point: </pre></p>
-    <div><input id="fixbox" type="checkbox">Fix vertical scale</div>
-    <div>Click+drag mouse on graph to pan and zoom.</div>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="jquery.flot.js"></script>
     <script type="text/javascript">
