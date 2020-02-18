@@ -21,12 +21,13 @@
 local utils        = require 'lem.utils'
 local queue        = require 'lem.queue'
 local io           = require 'lem.io'
-local httpserv     = require 'lem.http.server'
+local httpresp     = require 'lem.http.response'
 local hathaway     = require 'lem.hathaway'
 
 local assert = assert
 local format = string.format
 local tonumber = tonumber
+local bad_request = httpresp.bad_request
 
 local whichdb = 'postgres'
 --local whichdb = 'mariadb'
@@ -349,7 +350,7 @@ end)
 OPTIONSM('^/labibus_last/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_last/(%d+)/(%d+)$', function(req, res, dev, ms)
   if #ms > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -363,7 +364,7 @@ end)
 OPTIONSM('^/labibus_since/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_since/(%d+)/(%d+)$', function(req, res, dev, since)
   if #since > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -373,7 +374,7 @@ end)
 OPTIONSM('^/labibus_range/(%d+)/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_range/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
   if #from > 15 or #to > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -383,7 +384,7 @@ end)
 OPTIONSM('^/labibus_minutely/(%d+)/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_minutely/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
   if #from > 15 or #to > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -393,7 +394,7 @@ end)
 OPTIONSM('^/labibus_hourly/(%d+)/(%d+)/(%d+)$', apioptions)
 GETM('^/labibus_hourly/(%d+)/(%d+)/(%d+)$', function(req, res, dev, from, to)
   if #from > 15 or #to > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)

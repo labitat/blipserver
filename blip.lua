@@ -21,12 +21,13 @@
 local utils        = require 'lem.utils'
 local queue        = require 'lem.queue'
 local io           = require 'lem.io'
-local httpserv     = require 'lem.http.server'
+local httpresp     = require 'lem.http.response'
 local hathaway     = require 'lem.hathaway'
 
 local assert = assert
 local format = string.format
 local tonumber = tonumber
+local bad_request = httpresp.bad_request
 
 local whichdb = 'postgres'
 --local whichdb = 'mariadb'
@@ -243,7 +244,7 @@ end)
 OPTIONSM('^/since/(%d+)$', apioptions)
 GETM('^/since/(%d+)$', function(req, res, since)
 	if #since > 15 then
-		httpserv.bad_request(req, res)
+		bad_request(req, res)
 		return
 	end
 	apiheaders(res.headers)
@@ -253,7 +254,7 @@ end)
 OPTIONSM('^/range/(%d+)/(%d+)$', apioptions)
 GETM('^/range/(%d+)/(%d+)$', function(req, res, since, upto)
 	if #since > 15 or #upto > 15 then
-		httpserv.bad_request(req, res)
+		bad_request(req, res)
 		return
 	end
 	apiheaders(res.headers)
@@ -263,7 +264,7 @@ end)
 OPTIONSM('^/aggregate/(%d+)/(%d+)/(%d+)$', apioptions)
 GETM('^/aggregate/(%d+)/(%d+)/(%d+)$', function(req, res, since, interval, count)
 	if #since > 15 or #interval > 15 or #count > 15 or tonumber(count) > 1000 then
-		httpserv.bad_request(req, res)
+		bad_request(req, res)
 		return
 	end
 	apiheaders(res.headers)
@@ -274,7 +275,7 @@ end)
 OPTIONSM('^/hourly/(%d+)/(%d+)$', apioptions)
 GETM('^/hourly/(%d+)/(%d+)$', function(req, res, since, last)
   if #since > 15 or #last > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -284,7 +285,7 @@ end)
 OPTIONSM('^/minutely/(%d+)/(%d+)$', apioptions)
 GETM('^/minutely/(%d+)/(%d+)$', function(req, res, since, last)
   if #since > 15 or #last > 15 then
-    httpserv.bad_request(req, res)
+    bad_request(req, res)
     return
   end
   apiheaders(res.headers)
@@ -294,7 +295,7 @@ end)
 OPTIONSM('^/last/(%d+)$', apioptions)
 GETM('^/last/(%d+)$', function(req, res, ms)
 	if #ms > 15 then
-		httpserv.bad_request(req, res)
+		bad_request(req, res)
 		return
 	end
 	apiheaders(res.headers)
