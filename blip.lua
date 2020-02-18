@@ -27,11 +27,14 @@ local hathaway     = require 'lem.hathaway'
 local assert = assert
 local format = string.format
 local tonumber = tonumber
+local now = utils.now
 local bad_request = httpresp.bad_request
 
 local whichdb = 'postgres'
 --local whichdb = 'mariadb'
 --local whichdb = 'memory'
+
+local source = 'serial'
 local serialdev = '/dev/serial/blipduino'
 --local serialdev = '/dev/tty'
 
@@ -153,21 +156,36 @@ if (whichdb == 'memory')  then
 	runq = runq_memory()
 end
 
+local serial = {}
+serial.__index = serial
+
+function serial:open()
+	assert(serialdev)
+	self.c = assert(io.open(serialdev, 'r'))
+	-- discard first two readings
+	self:get()
+	self:get()
+end
+
+function serial:get()
+	local ms = assert(self.c:read('*l'))
+	local stamp = tonumber(format('%0.f', now() * 1000))
+	return ms, stamp
+end
+
+local sources = {
+	serial = serial,
+}
+
 utils.spawn(function()
-	local serial = assert(io.open(serialdev, 'r'))
+	local src = assert(sources[source], 'invalid source')
+	src:open()
 	local db = {
 		put = 'INSERT INTO readings VALUES (?, ?)'
 	}
-	local now = utils.now
-
-	-- discard first two readings
-	assert(serial:read('*l'))
-	assert(serial:read('*l'))
 
 	while true do
-		local ms = assert(serial:read('*l'))
-		local stamp = tonumber(format('%0.f', now() * 1000))
-
+		local ms, stamp = src:get()
 --		print(stamp, ms, blip.n)
 		blip:signal(stamp, ms)
 		assert(runq(db, 'put', stamp, ms))
@@ -356,7 +374,7 @@ GETM('^/last/(%d+)$', function(req, res, ms)
 	apiheaders(res.headers)
 
 	local since = format('%0.f',
-		utils.now() * 1000 - tonumber(ms))
+		now() * 1000 - tonumber(ms))
 
 	add_json(res, assert(runq(db, 'get', since)))
 end)
