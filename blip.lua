@@ -31,6 +31,7 @@ local bad_request = httpresp.bad_request
 
 local whichdb = 'postgres'
 --local whichdb = 'mariadb'
+--local whichdb = 'memory'
 local serialdev = '/dev/serial/blipduino'
 --local serialdev = '/dev/tty'
 
@@ -91,12 +92,65 @@ local function runq_postgres(db, name, ...)
 	return (db.conn):run(name, ...)
 end
 
+local function runq_memory()
+	local db = {}
+	local first = 1
+	local last = 0
+	local keep = 200000
+
+	local methods = {
+		put = function (stamp, ms)
+			last = last + 1
+			db[last] = { stamp, ms }
+			local kept = last - first + 1
+			if kept > keep then
+				db[first] = nil
+				first = first + 1
+				if first > keep then
+					local newdb = {}
+					table.move(db, first, last, 1, newdb)
+					db = newdb
+					first, last = 1, last - first + 1
+				end
+			end
+			return true
+		end,
+		range = function(from, to)
+			from, to = tonumber(from), tonumber(to)
+			local t = {}
+			local n = 0
+			for i=first,last do
+				local entry = db[i]
+				local stamp = entry[1]
+				if stamp > from and ((to == nil) or (stamp < to)) then
+					n = n + 1
+					t[n] = entry
+				end
+			end
+			return t
+		end
+	}
+	methods.get = methods.range
+
+	return function (_, name, ...)
+		local m = methods[name]
+		if m then
+			return m(...)
+		else
+			return {}
+		end
+	end
+end
+
 local runq
 if (whichdb == 'mariadb') then
 	runq = runq_mariadb
 end
 if (whichdb == 'postgres')  then
 	runq = runq_postgres
+end
+if (whichdb == 'memory')  then
+	runq = runq_memory()
 end
 
 utils.spawn(function()
@@ -112,7 +166,7 @@ utils.spawn(function()
 
 	while true do
 		local ms = assert(serial:read('*l'))
-		local stamp = format('%0.f', now() * 1000)
+		local stamp = tonumber(format('%0.f', now() * 1000))
 
 --		print(stamp, ms, blip.n)
 		blip:signal(stamp, ms)
