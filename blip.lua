@@ -34,21 +34,19 @@ local whichdb = 'postgres'
 local serialdev = '/dev/serial/blipduino'
 --local serialdev = '/dev/tty'
 
-local dbauth, postgres, qpostgres, mariadb, qmariadb
+local dbauth, qpostgres, qmariadb
 if (whichdb == 'mariadb') then
-	mariadb     = require 'lem.mariadb'
 	qmariadb    = require 'lem.mariadb.queued'
 	dbauth = {host="192.168.1.7",user="blipserver",passwd="pass",db="blipserver"}
 end
 if (whichdb == 'postgres') then
-	postgres     = require 'lem.postgres'
 	qpostgres    = require 'lem.postgres.queued'
 	dbauth = 'user=powermeter dbname=powermeter'
 end
 
 local blip = queue.new()
 
-function runq_mariadb(db, query, ...)
+local function runq_mariadb(db, query, ...)
 	if (db.conn) then
 		local r, m, e = (db[query][2]):run(...)
 		if (r or (e ~= 2006 and e ~= 2013)) then
@@ -69,9 +67,9 @@ function runq_mariadb(db, query, ...)
 	return assert(db[query][2]):run(...)
 end
 
-function runq_postgres(db, name, ...)
+local function runq_postgres(db, name, ...)
 	if (db.conn) then
-		local r, m = ((db.conn):run(name, ...))
+		local r, m = (db.conn):run(name, ...)
 		-- ToDo: Check for connection lost failure, and if so, fall
 		-- through to reconnect and retry the query.
 		return r, m
@@ -86,7 +84,7 @@ function runq_postgres(db, name, ...)
 				idx = idx+1
 				return "$" .. idx
 			end
-			local pq = string.gsub(q, "%?", f) 
+			local pq = string.gsub(q, "%?", f)
 			assert((db.conn):prepare(q_name, pq))
 		end
 	end
@@ -229,7 +227,10 @@ local db = {
 		'WHERE stamp >= ? AND stamp <= ? ORDER BY stamp LIMIT 100000'
 }
 if (whichdb == 'postgres') then
-	db.aggregate = 'SELECT ?::DOUBLE PRECISION*DIV(stamp - ?, ?) hour_stamp, COUNT(ms) FROM readings WHERE stamp >=? AND stamp < ?+?::DOUBLE PRECISION*? GROUP BY hour_stamp ORDER BY hour_stamp'
+	db.aggregate = 'SELECT ?::DOUBLE PRECISION*DIV(stamp - ?, ?) hour_stamp,' ..
+		'COUNT(ms) FROM readings WHERE stamp >=? AND ' ..
+		'stamp < ?+?::DOUBLE PRECISION*? ' ..
+		'GROUP BY hour_stamp ORDER BY hour_stamp'
 end
 
 OPTIONS('/last', apioptions)
