@@ -22,7 +22,9 @@ local utils        = require 'lem.utils'
 local queue        = require 'lem.queue'
 local io           = require 'lem.io'
 local httpresp     = require 'lem.http.response'
+local httpclient   = require 'lem.http.client'
 local hathaway     = require 'lem.hathaway'
+local json         = require 'json'
 
 local assert = assert
 local format = string.format
@@ -35,8 +37,10 @@ local whichdb = 'postgres'
 --local whichdb = 'memory'
 
 local source = 'serial'
+--local source = 'remote'
 local serialdev = '/dev/serial/blipduino'
 --local serialdev = '/dev/tty'
+local remote_url = 'http://power.labitat.dk'
 
 local dbauth, qpostgres, qmariadb
 if (whichdb == 'mariadb') then
@@ -173,8 +177,38 @@ function serial:get()
 	return ms, stamp
 end
 
+local remote = {}
+remote.__index = remote
+
+function remote:open()
+	self.c = httpclient.new()
+	self.url = remote_url .. '/blip'
+end
+
+function remote:get()
+	local url
+	local last = self.last
+	if last and false then
+		url = self.urlbase .. '/blip/since/' .. last
+	else
+		url = self.urlbase .. '/blip'
+	end
+	while true do
+		local res = self.c:get(url)
+		if res.status == 200 then
+			local body = res:body()
+			assert(body:sub(1,1) == '[')
+			local data = assert(json.decode(body))
+			--if last then data = data[1] end
+			self.last = data[1]
+			return data[2], data[1]
+		end
+	end
+end
+
 local sources = {
 	serial = serial,
+	remote = remote,
 }
 
 utils.spawn(function()
