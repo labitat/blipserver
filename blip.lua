@@ -324,6 +324,22 @@ GETM('^/since/(%d+)$', function(req, res, since)
 	add_json(res, assert(runq(db, 'get', since)))
 end)
 
+OPTIONSM('^/blip/since/(%d+)$', apioptions)
+GETM('^/blip/since/(%d+)$', function(req, res, since)
+	if #since > 15 then
+		bad_request(req, res)
+		return
+	end
+	apiheaders(res.headers)
+	local rows = assert(runq(db, 'get', since))
+	if #rows > 1 then
+		res:add('[%s,%s]', rows[1][1], rows[1][2])
+	else
+		local stamp, ms = blip:get()
+		res:add('[%s,%s]', stamp, ms)
+	end
+end)
+
 OPTIONSM('^/range/(%d+)/(%d+)$', apioptions)
 GETM('^/range/(%d+)/(%d+)$', function(req, res, since, upto)
 	if #since > 15 or #upto > 15 then
